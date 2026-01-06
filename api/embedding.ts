@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { kv } from "@vercel/kv";
-import { scanInjectionRisk } from "../src/utils/scanInjectionRisk.ts";
+import { scanInjectionRisk } from "./_utils/scanInjectionRisk";
 
 interface RequestBody {
   texts: string[];
