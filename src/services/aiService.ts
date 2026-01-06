@@ -32,11 +32,6 @@ export const streamDeepSeekAPI = async (
   _showDebugReasoning: boolean = false, // 保留签名，暂未使用
 ): Promise<StreamResult> => {
    
-  
-    if (!config.apiKey) {
-      throw new Error("未配置 API 密钥，请检查 .env.local 文件");
-    }
-  
     const useServerApi = import.meta.env.VITE_USE_SERVER_API === "true";
 
     const endpoint = `${config.apiBaseUrl}/chat/completions`;
