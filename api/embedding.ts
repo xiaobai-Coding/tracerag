@@ -118,77 +118,61 @@ function validateRequest(body: any): { isValid: boolean; error?: string } {
 }
 
 // 调用DashScope Embedding API
-async function callDashScopeEmbedding(
-  texts: string[]
-): Promise<{ embeddings: number[][]; model: string }> {
+async function callDashScopeEmbedding(texts: string[]) {
   const apiKey = process.env.DASHSCOPE_API_KEY;
-  if (!apiKey) {
-    throw new Error("DASHSCOPE_API_KEY环境变量未设置");
-  }
+  if (!apiKey) throw new Error('DASHSCOPE_API_KEY环境变量未设置');
 
-  const model = process.env.DASHSCOPE_EMBEDDING_MODEL || "text-embedding-v3";
+  const model = process.env.DASHSCOPE_EMBEDDING_MODEL || 'text-embedding-v3';
   const endpoint =
-    "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding";
-
-  const requestBody = {
-    model,
-    input: {
-      texts
-    }
-  };
-
-  console.log(
-    `[embedding] 调用DashScope API, model=${model}, texts=${texts.length}`
-  );
+    'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
 
   const timeoutMs = Number(process.env.DASHSCOPE_TIMEOUT_MS || 15000);
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const BATCH_SIZE = 10;
+  const allEmbeddings: number[][] = [];
 
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal
-    });
-  } catch (err: any) {
-    // 关键：超时/中断会走到这里
-    if (err?.name === "AbortError") {
-      throw new Error(`UPSTREAM_TIMEOUT:${timeoutMs}`);
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+    const batch = texts.slice(i, i + BATCH_SIZE);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          input: { texts: batch },
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`上游API错误: ${response.status} ${errorText}`);
+      }
+
+      const result = await response.json();
+
+      const embeddings = (result.output?.embeddings || []).map((item: any) => item.embedding);
+      if (!Array.isArray(embeddings) || embeddings.length !== batch.length) {
+        throw new Error('上游API返回embedding数量不匹配');
+      }
+
+      allEmbeddings.push(...embeddings);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw new Error(`UPSTREAM_TIMEOUT:${timeoutMs}`);
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
     }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
   }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(
-      `[embedding] DashScope API错误: ${response.status} ${errorText}`
-    );
-    throw new Error(`上游API错误: ${response.status} ${errorText}`);
-  }
-
-  const result = await response.json();
-
-  if (!result.output?.embeddings || !Array.isArray(result.output.embeddings)) {
-    throw new Error("上游API返回格式错误");
-  }
-
-  const embeddings = result.output.embeddings.map((item: any) => {
-    if (!Array.isArray(item.embedding)) {
-      throw new Error("上游API返回的embedding格式错误");
-    }
-    return item.embedding;
-  });
-
-  return { embeddings, model };
+  return { embeddings: allEmbeddings, model };
 }
 
 export default async function handler(
