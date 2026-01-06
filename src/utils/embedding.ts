@@ -53,11 +53,9 @@ async function callEmbeddingAPI(texts: string[], purpose?: 'query' | 'doc'): Pro
   }
 
   const data: EmbeddingResponse = await response.json();
-
   if (data.status !== 'ok' || !data.data?.embeddings) {
     throw new Error('API响应格式错误');
   }
-
   return data.data.embeddings;
 }
 

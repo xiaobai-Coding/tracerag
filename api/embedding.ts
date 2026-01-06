@@ -1,4 +1,5 @@
-import { scanInjectionRisk } from '../src/utils/scanInjectionRisk';
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { scanInjectionRisk } from '../src/utils/scanInjectionRisk.ts';
 
 interface RequestBody {
   texts: string[];
@@ -83,25 +84,42 @@ async function callDashScopeEmbedding(texts: string[]): Promise<{ embeddings: nu
   }
 
   const model = process.env.DASHSCOPE_EMBEDDING_MODEL || 'text-embedding-v3';
-  const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding';
+  const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
 
   const requestBody = {
     model,
     input: {
-      contents: texts.map(text => ({ text }))
+      texts
     }
   };
 
   console.log(`[embedding] 调用DashScope API, model=${model}, texts=${texts.length}`);
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestBody)
-  });
+  const timeoutMs = Number(process.env.DASHSCOPE_TIMEOUT_MS || 15000);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
+  } catch (err: any) {
+    // 关键：超时/中断会走到这里
+    if (err?.name === 'AbortError') {
+      throw new Error(`UPSTREAM_TIMEOUT:${timeoutMs}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -126,47 +144,51 @@ async function callDashScopeEmbedding(texts: string[]): Promise<{ embeddings: nu
 }
 
 export default async function handler(
-  request: Request
-): Promise<Response> {
+  request: VercelRequest,
+  response: VercelResponse
+): Promise<void> {
   const requestId = generateRequestId();
   const startTime = Date.now();
 
   try {
     // 只允许POST方法
     if (request.method !== 'POST') {
-      const response: ErrorResponse = {
+      const errorResponse: ErrorResponse = {
         status: 'error',
         code: 'BAD_REQUEST',
         message: '只支持POST方法',
         requestId
       };
-      return Response.json(response, { status: 405 });
+      response.status(405).json(errorResponse);
+      return;
     }
 
-    // 解析请求体
+    // parse request body
     let body: RequestBody;
     try {
-      body = await request.json();
+      body = JSON.parse(JSON.stringify(request.body));
     } catch (e) {
-      const response: ErrorResponse = {
+      const errorResponse: ErrorResponse = {
         status: 'error',
         code: 'BAD_REQUEST',
         message: '请求体必须是有效的JSON',
         requestId
       };
-      return Response.json(response, { status: 400 });
+      response.status(400).json(errorResponse);
+      return;
     }
 
     // 验证请求体
     const validation = validateRequest(body);
     if (!validation.isValid) {
-      const response: ErrorResponse = {
+      const errorResponse: ErrorResponse = {
         status: 'error',
         code: 'BAD_REQUEST',
         message: validation.error!,
         requestId
       };
-      return Response.json(response, { status: 400 });
+      response.status(400).json(errorResponse);
+      return;
     }
 
     // 扫描注入风险
@@ -174,12 +196,11 @@ export default async function handler(
 
     // 调用DashScope API
     const { embeddings, model } = await callDashScopeEmbedding(body.texts);
-
     const duration = Date.now() - startTime;
     console.log(`[embedding] 完成, requestId=${requestId}, purpose=${body.purpose || 'unknown'}, texts=${body.texts.length}, duration=${duration}ms, hasInjectionRisk=${injectionResult.hasRisk}`);
 
     // 成功响应
-    const response: SuccessResponse = {
+    const successResponse: SuccessResponse = {
       status: 'ok',
       data: { embeddings },
       meta: {
@@ -191,7 +212,7 @@ export default async function handler(
       }
     };
 
-    return Response.json(response);
+    response.status(200).json(successResponse);
 
   } catch (error) {
     const duration = Date.now() - startTime;
@@ -217,13 +238,13 @@ export default async function handler(
       }
     }
 
-    const response: ErrorResponse = {
+    const errorResponse: ErrorResponse = {
       status: 'error',
       code,
       message,
       requestId
     };
 
-    return Response.json(response, { status: statusCode });
+    response.status(statusCode).json(errorResponse);
   }
 }
