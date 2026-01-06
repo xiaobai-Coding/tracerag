@@ -30,7 +30,8 @@ async function callEmbeddingAPI(texts: string[], purpose?: 'query' | 'doc'): Pro
   const response = await fetch('/api/embedding', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'x-client-token': 'tracerag-web'
     },
     body: JSON.stringify({
       texts,
