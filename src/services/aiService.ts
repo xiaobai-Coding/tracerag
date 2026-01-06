@@ -30,7 +30,6 @@ type StreamResult = {
 export const streamDeepSeekAPI = async (
   userMessages: any[],
   _showDebugReasoning: boolean = false, // 保留签名，暂未使用
-  onPartialResponse?: (partial: string) => void
 ): Promise<StreamResult> => {
    
   
