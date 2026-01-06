@@ -307,8 +307,8 @@ ${chunks.value.map((c, i) => `#${i + 1}: ${c}`).join("\n------------\n")}
         streamed += partial;
       }
     );
-    const content = res?.content;
-    const parsed = JSON.parse(content);
+    const content = res;
+    const parsed = content
     if (parsed?.summary && Array.isArray(parsed?.key_points)) {
       summary.value = {
         summary: parsed.summary,

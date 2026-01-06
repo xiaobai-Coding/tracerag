@@ -94,10 +94,10 @@ export async function answerQuestion(
 
   // 5. 调用 DeepSeek API 进行回答
   const res = await streamDeepSeekAPI(messages, false);
-  const content = res?.content || "";
+  const content = res || "";
 
   try {
-    const parsed = JSON.parse(content);
+    const parsed: any = content;
     return {
       answer: parsed?.answer ?? "文档中没有找到相关信息",
       sources: Array.isArray(parsed?.sources) ? parsed.sources : []
