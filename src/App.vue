@@ -130,6 +130,7 @@ import { extractDocxText } from "./utils/docxParser";
 import { splitIntoChunksWithOverlap } from "./utils/chunk";
 import { streamDeepSeekAPI } from "./services/aiService";
 import { answerQuestion } from "./services/qaService";
+import { PARSE_SYSTEM_PROMPT } from "./prompts/prompt"
 type SummaryResult = {
   summary: string;
   key_points: string[];
@@ -145,42 +146,7 @@ const summaryError = ref("");
 const textViewerRef = ref<InstanceType<typeof TextViewer> | null>(null);
 const highlightChunks = ref<number[]>([]);
 let highlightClearTimer: number | null = null;
-const SYSTEM_PROMPT = `
-你是一个严谨的文档分析助手，专门帮用户对上传的 PDF / DOCX 文档做摘要和要点提取。
 
-【你将收到的内容】
-- 用户消息中会提供多段文本片段
-- 每个片段都带有编号，例如：
-  #1: ...
-  #2: ...
-  #3: ...
-
-【你的任务】
-1）根据所有片段，生成对整份文档的整体摘要，要求简洁明了（最多100字）
-2）提取文档中最重要的 3~5 条关键点
-
-【严格要求】
-- 必须完全基于提供的片段内容，不得使用外部知识
-- 不允许凭空捏造、延伸、推测超出内容的信息
-- 如果文档信息不足以支持结论，请在摘要中明确说明
-- 输出必须是合法 JSON，不允许有任何多余字符（如解释文字、Markdown 标记、注释等）
-
-【引用规则（非常重要）】
-- 摘要中的每一句话，末尾都要带上引用来源，例如："……句子内容 [[#1,#3]]"
-- 关键点数组中的每一条也要带引用，例如："xxx 关键点 [[#2]]"
-- 引用中的编号必须对应用户消息中出现过的片段编号
-- 一个句子可以引用多个片段，用逗号分隔，如 [[#1,#4,#5]]
-
-【输出 JSON 格式，不要有任何解释文字，不包含任何其他文字，只包含 JSON 格式】
-{
-  "summary": "string（可以包含多句，每句附带 [[#编号]] 引用）",
-  "key_points": [
-    "string（附带 [[#编号]] 引用）",
-    "string（附带 [[#编号]] 引用）",
-    "string（附带 [[#编号]] 引用）"
-  ]
-}
-`;
 // 文件类型处理器映射
 const fileHandlers: Record<string, (file: File) => Promise<string>> = {
   ".pdf": (file: File) => extractPdfText(file),
@@ -208,7 +174,6 @@ async function handleFile(file: File) {
     text.value = await handler(file);
     const overlapChunks = splitIntoChunksWithOverlap(text.value);
     chunks.value = overlapChunks as string[];
-    console.log("chunks====>", chunks.value);
     // 生成摘要
     await generateSummary();
   } catch (err: any) {
@@ -294,7 +259,7 @@ ${chunks.value.map((c, i) => `#${i + 1}: ${c}`).join("\n------------\n")}
 `;
 
   const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: PARSE_SYSTEM_PROMPT },
     { role: "user", content: userMessage }
   ];
 

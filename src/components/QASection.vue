@@ -196,6 +196,7 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
+// 文档提问
 async function handleAsk() {
   if (!question.value.trim()) return;
   loading.value = true;

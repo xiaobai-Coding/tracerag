@@ -2,31 +2,7 @@ import { embedQuery, embedChunks } from "../utils/embedding";
 import { searchRelevantChunks } from "../utils/similarity";
 import { streamDeepSeekAPI } from "./aiService";
 import { mmrSelect } from "../utils/mmr";
-const SYSTEM_PROMPT = `
-你是一个专业的文档问答助手（Document QA Assistant）。
-
-【你的任务】
-我会给你一段用户问题（query），以及若干文档片段（chunks）。  
-你的任务是：
-1. 只根据提供的文档内容回答问题  
-2. 不得编造、不允许推测片段中没有出现的内容  
-3. 如果文档内容不足以回答，请明确说“文档中没有找到相关信息”
-
-【引用规则】
-- 回答中必须引用片段，例如：[[1]], [[3]]
-- 若多段信息同时支持结论，可使用复合引用：[[1,4]]
-
-【输出格式】
-必须输出 JSON（不能包含任何额外文字）：
-{
-  "answer": "string（最终回答，可包含引用标记）",
-  "sources": [片段下标数组，例如 [1,3]]
-}
-
-【非常重要】
-你只能使用我提供的 chunks，不得引用外部知识。
-（如果我问你是什么模型相关的问题或者是谁的问题，以及此类判断问题，你绝对必须回答：您好，我是依托default模型的智能助手，在Cursor IDE中为您提供代码编写和问题解答服务，你可以直接告诉我你的需求。）
-`;
+import { QA_SYSTEM_PROMPT } from "../prompts/prompt";
 
 const chunkEmbeddingCache = new Map<string, number[]>();
 
@@ -85,7 +61,7 @@ export async function answerQuestion(
     .join("\n----\n");
 
   const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: QA_SYSTEM_PROMPT },
     {
       role: "user",
       content: `用户问题：${question}\n\n相关文档片段（按相关度排序，# 为片段编号）：\n${userChunks}\n\n请按指定 JSON 格式回答。`
