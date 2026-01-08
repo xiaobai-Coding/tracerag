@@ -10,36 +10,38 @@ import { cosineSimilarity } from "./similarity";
 export function mmrSelect(
   queryEmbedding: number[],
   docEmbeddings: number[][],
-  topK: number = 5,
-  lambda: number = 0.7
-) {
-  const selected: number[] = [];
+  topK = 5,
+  lambda = 0.7
+): { index: number; mmrScore: number; relevance: number }[] {
+  const selected: { index: number; mmrScore: number; relevance: number }[] = [];
   const candidates = [...docEmbeddings.keys()];
 
   while (selected.length < topK && candidates.length > 0) {
     let bestIndex = -1;
-    let bestScore = -Infinity;
+    let bestMmr = -Infinity;
+    let bestRel = -Infinity;
 
     for (const i of candidates) {
-      const relevance = cosineSimilarity(queryEmbedding, docEmbeddings[i]);
+      const rel = cosineSimilarity(queryEmbedding, docEmbeddings[i]);
 
-      let diversity = 0;
+      let div = 0;
       if (selected.length > 0) {
         const sims = selected.map(j =>
-          cosineSimilarity(docEmbeddings[i], docEmbeddings[j])
+          cosineSimilarity(docEmbeddings[i], docEmbeddings[j.index])
         );
-        diversity = Math.max(...sims);
+        div = Math.max(...sims);
       }
 
-      const mmrScore = lambda * relevance - (1 - lambda) * diversity;
+      const mmr = lambda * rel - (1 - lambda) * div;
 
-      if (mmrScore > bestScore) {
-        bestScore = mmrScore;
+      if (mmr > bestMmr) {
+        bestMmr = mmr;
         bestIndex = i;
+        bestRel = rel;
       }
     }
 
-    selected.push(bestIndex);
+    selected.push({ index: bestIndex, mmrScore: bestMmr, relevance: bestRel });
     candidates.splice(candidates.indexOf(bestIndex), 1);
   }
 

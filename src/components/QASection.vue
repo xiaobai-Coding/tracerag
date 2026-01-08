@@ -50,8 +50,49 @@
       </div>
     </div>
 
+    <!-- 证据不足状态 -->
+    <div class="qa-no-evidence" v-else-if="answer?.status === 'no_evidence'">
+      <div class="evidence-header">
+        <div class="evidence-icon">❌</div>
+        <div>
+          <div class="evidence-title">证据不足</div>
+          <div class="evidence-subtitle">文档中未找到相关信息</div>
+        </div>
+      </div>
+      <div class="evidence-content">
+        <p class="evidence-text">抱歉，文档内容中没有找到足够的相关信息来回答您的问题。</p>
+        <div class="evidence-metrics" v-if="answer.metrics">
+          <span class="metrics-label">检索信息：</span>
+          <span class="metrics-value">最高相似度 {{ (answer.metrics.top1_score * 100).toFixed(1) }}%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 需要澄清状态 -->
+    <div class="qa-need-clarify" v-else-if="answer?.status === 'need_clarify'">
+      <div class="clarify-header">
+        <div class="clarify-icon">🤔</div>
+        <div>
+          <div class="clarify-title">需要澄清</div>
+          <div class="clarify-subtitle">请提供更多具体信息</div>
+        </div>
+      </div>
+      <div class="clarify-content">
+        <p class="clarify-text">您的问题比较模糊，请尝试：</p>
+        <ul class="clarify-options">
+          <li v-for="(option, idx) in answer.clarify_options" :key="idx" class="clarify-option">
+            {{ option }}
+          </li>
+        </ul>
+        <div class="clarify-metrics" v-if="answer.metrics">
+          <span class="metrics-label">检索信息：</span>
+          <span class="metrics-value">相似度 {{ (answer.metrics.top1_score * 100).toFixed(1) }}% ({{ answer.metrics.low * 100 }}%-{{ answer.metrics.high * 100 }}% 区间)</span>
+        </div>
+      </div>
+    </div>
+
     <!-- AI 回答卡片 -->
-    <div class="qa-answer" v-else-if="answer">
+    <div class="qa-answer" v-else-if="answer?.status === 'has_evidence'">
       <div class="answer-header">
         <div class="answer-title-wrapper">
           <div class="answer-icon">✨</div>
@@ -60,8 +101,8 @@
             <div class="answer-subtitle">基于文档内容生成</div>
           </div>
         </div>
-        <div class="answer-badge" v-if="answer.sources?.length">
-          {{ answer.sources.length }} 个引用
+        <div class="answer-badge" v-if="answer.citations?.length">
+          {{ answer.citations.length }} 个引用
         </div>
       </div>
       <div class="answer-content">
@@ -77,14 +118,14 @@
             </span>
           </span>
         </p>
-        <div class="sources" v-if="answer.sources?.length">
+        <div class="sources" v-if="answer.citations?.length">
           <span class="source-label">
             <span class="source-icon">📎</span>
             引用片段：
           </span>
           <div class="source-chips">
             <button
-              v-for="s in answer.sources"
+              v-for="s in answer.citations"
               :key="s"
               class="source-chip"
               @click="emit('scroll-to-chunks', [Number(s)])"
@@ -117,6 +158,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { answerQuestion } from "../services/qaService";
+import type { QAResponse } from "../types/qa";
 
 const props = defineProps<{
   chunks: string[];
@@ -128,7 +170,7 @@ const emit = defineEmits<{
 
 const question = ref("");
 const loading = ref(false);
-const answer = ref<{ answer: string; sources: number[] } | null>(null);
+const answer = ref<QAResponse | null>(null);
 const error = ref("");
 
 type Segment =
@@ -204,11 +246,7 @@ async function handleAsk() {
   answer.value = null;
   try {
     const res = await answerQuestion(question.value, props.chunks);
-    const normalized = {
-      answer: res?.answer ?? "",
-      sources: Array.isArray(res?.sources) ? res.sources : [],
-    };
-    answer.value = normalized;
+    answer.value = res;
   } catch (e: any) {
     error.value = e?.message || "提问失败，请重试";
   } finally {
@@ -266,6 +304,8 @@ async function handleAsk() {
 
 .qa-card .qa-loading,
 .qa-card .qa-answer,
+.qa-card .qa-no-evidence,
+.qa-card .qa-need-clarify,
 .qa-card .qa-error,
 .qa-card .qa-placeholder {
   flex: 1;
@@ -522,6 +562,169 @@ async function handleAsk() {
   font-size: 14px;
   color: #6366f1;
   font-weight: 500;
+}
+
+/* 证据不足状态 */
+.qa-no-evidence {
+  margin-top: 0;
+  background: linear-gradient(135deg, rgba(254, 226, 226, 0.95), rgba(254, 215, 215, 0.9));
+  border: 1px solid rgba(220, 38, 38, 0.15);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(220, 38, 38, 0.08);
+  position: relative;
+  overflow: hidden;
+  animation: evidenceSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes evidenceSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.evidence-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 20px 0 20px;
+}
+
+.evidence-icon {
+  font-size: 24px;
+  filter: drop-shadow(0 2px 4px rgba(220, 38, 38, 0.3));
+}
+
+.evidence-title {
+  font-weight: 800;
+  font-size: 18px;
+  color: #dc2626;
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.evidence-subtitle {
+  font-size: 12px;
+  color: #991b1b;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.evidence-content {
+  padding: 16px 20px 20px 20px;
+}
+
+.evidence-text {
+  margin: 0 0 12px;
+  line-height: 1.6;
+  color: #7f1d1d;
+  font-size: 14px;
+}
+
+.evidence-metrics {
+  font-size: 12px;
+  color: #991b1b;
+  opacity: 0.7;
+}
+
+/* 需要澄清状态 */
+.qa-need-clarify {
+  margin-top: 0;
+  background: linear-gradient(135deg, rgba(255, 237, 213, 0.95), rgba(254, 215, 170, 0.9));
+  border: 1px solid rgba(245, 158, 11, 0.15);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(245, 158, 11, 0.08);
+  position: relative;
+  overflow: hidden;
+  animation: clarifySlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes clarifySlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.clarify-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 20px 0 20px;
+}
+
+.clarify-icon {
+  font-size: 24px;
+  filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3));
+}
+
+.clarify-title {
+  font-weight: 800;
+  font-size: 18px;
+  color: #d97706;
+  background: linear-gradient(135deg, #d97706, #b45309);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.clarify-subtitle {
+  font-size: 12px;
+  color: #92400e;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.clarify-content {
+  padding: 16px 20px 20px 20px;
+}
+
+.clarify-text {
+  margin: 0 0 12px;
+  line-height: 1.6;
+  color: #9a3412;
+  font-size: 14px;
+}
+
+.clarify-options {
+  margin: 0 0 12px;
+  padding-left: 16px;
+}
+
+.clarify-option {
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 4px;
+  opacity: 0.85;
+}
+
+.clarify-metrics {
+  font-size: 12px;
+  color: #92400e;
+  opacity: 0.7;
+}
+
+.metrics-label {
+  font-weight: 500;
+}
+
+.metrics-value {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
 }
 
 /* AI 回答卡片 - 简约炫酷样式，与摘要卡片风格一致 */
