@@ -2,18 +2,18 @@
   <div class="text-viewer" ref="containerRef">
     <div
       v-for="(chunk, index) in chunks"
-      :key="index"
+      :key="chunk.id"
       class="chunk-block"
-      :data-chunk-id="`chunk-${index + 1}`"
-      :class="{ 
-        active: isHighlighted(index + 1),
-        flash: isFlashing(index + 1)
+      :data-chunk-id="chunk.id"
+      :class="{
+        active: isHighlighted(chunk.id),
+        flash: isFlashing(chunk.id)
       }"
     >
       <div class="chunk-left-border"></div>
       <div class="chunk-content">
-        <div class="chunk-meta">#{{ index + 1 }}</div>
-        <pre class="text-content">{{ chunk }}</pre>
+        <div class="chunk-meta">#{{ chunk.index }}</div>
+        <pre class="text-content">{{ chunk.text }}</pre>
       </div>
     </div>
   </div>
@@ -21,24 +21,25 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import type { Chunk } from "../utils/chunk";
 
 const props = defineProps<{
-  chunks: string[];
-  highlightChunkIndices?: number[];
+  chunks: Chunk[];
+  highlightChunkIndices?: string[];
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
-const activeId = ref<number | null>(null);
-const flashingIds = ref<Set<number>>(new Set());
+const activeId = ref<string | null>(null);
+const flashingIds = ref<Set<string>>(new Set());
 let highlightTimer: number | null = null;
-let flashTimers: Map<number, number> = new Map();
+let flashTimers: Map<string, number> = new Map();
 
 /**
  * 判断 chunk 是否应该高亮
  * - 支持单个 activeId（临时高亮）
  * - 支持多个 highlightChunkIndices（多引用高亮）
  */
-function isHighlighted(id: number) {
+function isHighlighted(id: string) {
   if (activeId.value === id) return true;
   if (Array.isArray(props.highlightChunkIndices)) {
     return props.highlightChunkIndices.includes(id);
@@ -49,7 +50,7 @@ function isHighlighted(id: number) {
 /**
  * 判断 chunk 是否正在 flash 动画
  */
-function isFlashing(id: number) {
+function isFlashing(id: string) {
   return flashingIds.value.has(id);
 }
 
@@ -59,10 +60,10 @@ function isFlashing(id: number) {
  * - 添加 flash 动画效果
  * - 3 秒后自动移除高亮
  */
-function scrollToChunk(id: number) {
+function scrollToChunk(id: string) {
   if (!containerRef.value) return;
   const target = containerRef.value.querySelector(
-    `[data-chunk-id="chunk-${id}"]`
+    `[data-chunk-id="${id}"]`
   ) as HTMLElement | null;
   if (target) {
     // 平滑滚动到目标位置

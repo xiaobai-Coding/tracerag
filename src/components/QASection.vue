@@ -128,9 +128,9 @@
               v-for="s in answer.citations"
               :key="s"
               class="source-chip"
-              @click="emit('scroll-to-chunks', [Number(s)])"
+              @click="handleRefClick([s])"
             >
-              #{{ s }}
+              #{{ mapIdsToDisplayIndices([s])[0] }}
             </button>
           </div>
         </div>
@@ -157,15 +157,16 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import type { Chunk } from "../utils/chunk";
 import { answerQuestion } from "../services/qaService";
 import type { QAResponse } from "../types/qa";
 
 const props = defineProps<{
-  chunks: string[];
+  chunks: Chunk[];
 }>();
 
 const emit = defineEmits<{
-  (e: "scroll-to-chunks", ids: number[]): void;
+  (e: "scroll-to-chunks", ids: string[]): void;
 }>();
 
 const question = ref("");
@@ -183,25 +184,23 @@ type Segment =
  */
 function parseWithRefs(str: string): Segment[] {
   const segments: Segment[] = [];
-  // 支持形如 [[1,4]]、[[#2,5,6]]、[[1, 4]] 等多种格式
-  const regex = /\[\[([#\d,\s，、]+)\]\]/g;
+  // 支持形如 [[1,4]]、[[chunk-1,chunk-3]]、[[#2,5,6]]、[[1, 4]] 等多种格式
+  const regex = /\[\[([#\w\d\-,\s，、]+)\]\]/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(str)) !== null) {
     if (match.index > lastIndex) {
       segments.push({ type: "text", text: str.slice(lastIndex, match.index) });
     }
-    // 解析引用编号：去除 # 号，分割逗号/顿号，转换为数字数组
-    const ids = match[1]
+    // 解析引用编号：去除 # 号，分割逗号/顿号，保持原始格式
+    const rawIds = match[1]
       ? match[1]
           .split(/[,，、]/)
           .map((id) => id.trim().replace(/^#/, ""))
           .filter(Boolean)
-          .map((id) => Number(id))
-          .filter((id) => !Number.isNaN(id))
       : [];
-    if (ids.length) {
-      segments.push({ type: "ref", ids: ids.map(String) });
+    if (rawIds.length) {
+      segments.push({ type: "ref", ids: rawIds });
     }
     lastIndex = regex.lastIndex;
   }
@@ -212,16 +211,56 @@ function parseWithRefs(str: string): Segment[] {
 }
 
 /**
+ * 将引用ID转换为显示下标
+ */
+function mapIdsToDisplayIndices(ids: string[]): string[] {
+  return ids.map(id => {
+    // 如果是数字，转换为对应的chunk index
+    const num = parseInt(id);
+    if (!isNaN(num) && num > 0 && num <= props.chunks.length) {
+      const chunk = props.chunks[num - 1]; // chunks数组是从0开始的
+      return chunk.index.toString();
+    }
+    // 如果已经是chunk-id格式，转换为对应的index
+    if (id.startsWith('chunk-')) {
+      const num = parseInt(id.replace('chunk-', ''));
+      if (!isNaN(num) && num > 0 && num <= props.chunks.length) {
+        const chunk = props.chunks[num - 1];
+        return chunk.index.toString();
+      }
+    }
+    return id;
+  });
+}
+
+/**
  * 处理引用点击事件
  * - 解析引用编号数组
  * - 滚动到最小编号（第一个引用）
  * - 高亮所有引用的片段
  */
 function handleRefClick(ids: string[]) {
-  const numIds = ids.map((id) => Number(id)).filter((id) => !Number.isNaN(id));
-  if (numIds.length === 0) return;
-  // 触发事件，传递所有引用编号数组
-  emit("scroll-to-chunks", numIds);
+  const validIds = ids.filter((id) => id && id.trim());
+  if (validIds.length === 0) return;
+
+  // 将数字索引映射到chunk id
+  const chunkIds = validIds.map(id => {
+    // 如果已经是chunk-id格式，直接使用
+    if (id.startsWith('chunk-')) {
+      return id;
+    }
+    // 如果是数字，转换为chunk-id格式
+    const num = parseInt(id);
+    if (!isNaN(num) && num > 0 && num <= props.chunks.length) {
+      return `chunk-${num}`;
+    }
+    return id;
+  }).filter(id => id);
+
+  if (chunkIds.length === 0) return;
+
+  // 触发事件，传递所有引用ID数组
+  emit("scroll-to-chunks", chunkIds);
 }
 
 /**

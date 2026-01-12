@@ -5,6 +5,7 @@ import { mmrSelect } from "../utils/mmr";
 import { QA_SYSTEM_PROMPT } from "../prompts/prompt";
 import { decideEvidenceStatus } from "../utils/evidenceGate";
 import type { QAResponse, QAMetrics, EvidenceStatus } from "../types/qa";
+import type { Chunk } from "../utils/chunk";
 
 const chunkEmbeddingCache = new Map<string, number[]>();
 
@@ -14,7 +15,7 @@ function chunkKey(text: string) {
 
 export async function answerQuestion(
   question: string,
-  chunks: string[]
+  chunks: Chunk[]
 ): Promise<QAResponse> {
   if (!question || !question.trim()) {
     throw new Error("question 不能为空");
@@ -25,22 +26,22 @@ export async function answerQuestion(
   // 1. 对用户问题进行向量化
   const queryVector = await embedQuery(question);
   // 2. 对文档片段进行向量化，并缓存
-  const missing: { idx: number; text: string }[] = [];
+  const missing: { idx: number; chunk: Chunk }[] = [];
   chunks.forEach((c, i) => {
-    if (!chunkEmbeddingCache.has(chunkKey(c))) {
-      missing.push({ idx: i, text: c });
+    if (!chunkEmbeddingCache.has(chunkKey(c.text))) {
+      missing.push({ idx: i, chunk: c });
     }
   });
 
   if (missing.length) {
-    const embeddings: any = await embedChunks(missing.map((m) => m.text));
+    const embeddings: any = await embedChunks(missing.map((m) => m.chunk.text));
     missing.forEach((m, idx) => {
-      chunkEmbeddingCache.set(chunkKey(m.text), embeddings[idx]);
+      chunkEmbeddingCache.set(chunkKey(m.chunk.text), embeddings[idx]);
     });
   }
 
   const chunkVectors = chunks.map(
-    (c) => chunkEmbeddingCache.get(chunkKey(c)) || []
+    (c) => chunkEmbeddingCache.get(chunkKey(c.text)) || []
   );
 
   // 3. 在片段向量中检索最相关的 topK 片段 使用 MMR 算法
@@ -48,8 +49,9 @@ export async function answerQuestion(
   const topResults = mmrSelect(queryVector, chunkVectors, k);
 
   const topChunks = topResults.map((result) => ({
-    index: result.index,
-    text: chunks[result.index],
+    chunkId: chunks[result.index]?.id || `chunk-${result.index + 1}`,
+    index: chunks[result.index]?.index || (result.index + 1),
+    text: chunks[result.index]?.text || '',
     score: result.mmrScore,
     relevance: result.relevance
   }));
@@ -66,7 +68,7 @@ export async function answerQuestion(
 
   // 生成 used_chunks（最多取 topK 的 chunk_id + score）
   const used_chunks = topChunks.slice(0, k).map(chunk => ({
-    chunk_id: chunk.index.toString(),
+    chunk_id: chunk.chunkId,
     score: chunk.score
   }));
 
@@ -119,7 +121,7 @@ export async function answerQuestion(
 
   // 构建提示词
   const userChunks = topChunks
-    .map((item) => `#${item.index + 1}: ${item.text}`)
+    .map((item) => `#${item.chunkId}: ${item.text}`)
     .join("\n----\n");
 
   const messages = [
@@ -136,13 +138,42 @@ export async function answerQuestion(
 
   try {
     const parsed: any = content;
+
+    // 检查引用完整性：确保所有citations都包含在used_chunks中
+    const citations = Array.isArray(parsed?.sources) ? parsed.sources : [];
+    const usedChunkIds = new Set(used_chunks.map(chunk => chunk.chunk_id));
+
+    // 检查是否有任何citation不在used_chunks中
+    const invalidCitations = citations.filter((citation: string) => {
+      // citation可能是数字字符串或chunk-id格式，需要统一处理
+      const numCitation = parseInt(citation);
+      if (!isNaN(numCitation)) {
+        // 如果是数字，转换为chunk-id格式
+        return !usedChunkIds.has(`chunk-${numCitation}`);
+      }
+      // 如果已经是chunk-id格式，直接检查
+      return !usedChunkIds.has(citation);
+    });
+
+    // 如果有无效引用，返回no_evidence
+    if (invalidCitations.length > 0) {
+      console.log(`[Citation Integrity] Invalid citations found: ${invalidCitations.join(', ')}, used chunks: ${Array.from(usedChunkIds).join(', ')}`);
+      return {
+        status: 'no_evidence' as EvidenceStatus,
+        answer: null,
+        used_chunks,
+        metrics,
+        need_clarify: false
+      };
+    }
+
     return {
       status: 'has_evidence' as EvidenceStatus,
       answer: parsed?.answer ?? "文档中没有找到相关信息",
       used_chunks,
       metrics,
       need_clarify: false,
-      citations: Array.isArray(parsed?.sources) ? parsed.sources : []
+      citations
     };
   } catch (e) {
     throw new Error("LLM 返回的内容不是合法 JSON");

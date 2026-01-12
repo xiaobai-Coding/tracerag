@@ -66,7 +66,7 @@
                 <a
                   href="#"
                   class="ref-link"
-                  @click.prevent="scrollToChunks(seg.ids.map(Number))"
+                  @click.prevent="scrollToChunks(mapRefsToChunkIds(seg.ids))"
                 >[#{{ seg.ids.join(',') }}]</a>
               </span>
             </span>
@@ -82,7 +82,7 @@
                     <a
                       href="#"
                       class="ref-link"
-                      @click.prevent="scrollToChunks(seg.ids.map(Number))"
+                      @click.prevent="scrollToChunks(mapRefsToChunkIds(seg.ids))"
                     >[#{{ seg.ids.join(',') }}]</a>
                   </span>
                 </span>
@@ -127,7 +127,7 @@ import TextViewer from "./components/TextViewer.vue";
 import QASection from "./components/QASection.vue";
 import { extractPdfText } from "./utils/pdfParser";
 import { extractDocxText } from "./utils/docxParser";
-import { splitIntoChunksWithOverlap } from "./utils/chunk";
+import { splitIntoChunksWithOverlap, type Chunk } from "./utils/chunk";
 import { streamDeepSeekAPI } from "./services/aiService";
 import { answerQuestion } from "./services/qaService";
 import { PARSE_SYSTEM_PROMPT } from "./prompts/prompt"
@@ -139,12 +139,12 @@ type SummaryResult = {
 const text = ref("");
 const loading = ref(false);
 const error = ref("");
-const chunks = ref<string[]>([]); // 文档片段
+const chunks = ref<Chunk[]>([]); // 文档片段
 const summary = ref<SummaryResult | null>(null);
 const summaryLoading = ref(false);
 const summaryError = ref("");
 const textViewerRef = ref<InstanceType<typeof TextViewer> | null>(null);
-const highlightChunks = ref<number[]>([]);
+const highlightChunks = ref<string[]>([]);
 let highlightClearTimer: number | null = null;
 
 // 文件类型处理器映射
@@ -173,7 +173,7 @@ async function handleFile(file: File) {
 
     text.value = await handler(file);
     const overlapChunks = splitIntoChunksWithOverlap(text.value);
-    chunks.value = overlapChunks as string[];
+    chunks.value = overlapChunks;
     // 生成摘要
     await generateSummary();
   } catch (err: any) {
@@ -189,8 +189,8 @@ type Segment =
 
 function parseWithRefs(str: string): Segment[] {
   const segments: Segment[] = [];
-  // 支持形如 [[#3,#4,#6,#7]]，含多重 #、空格、全角逗号/顿号
-  const regex = /\[\[([#\d,\s，、]+)\]\]/g;
+  // 支持形如 [[chunk-1,chunk-4]]、[[#chunk-1,#chunk-4]] 或 [[1,4]] 等格式
+  const regex = /\[\[([#\w\d\-,\s，、]+)\]\]/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(str)) !== null) {
@@ -213,31 +213,47 @@ function parseWithRefs(str: string): Segment[] {
 }
 
 /**
+ * 将引用ID映射为chunk ID（用于跳转）
+ */
+function mapRefsToChunkIds(ids: string[]): string[] {
+  return ids.map(id => {
+    // 如果已经是chunk-id格式，直接使用
+    if (id.startsWith('chunk-')) {
+      return id;
+    }
+    // 如果是数字，转换为chunk-id格式
+    const num = parseInt(id);
+    if (!isNaN(num) && num > 0 && num <= chunks.value.length) {
+      return `chunk-${num}`;
+    }
+    return id;
+  }).filter(id => id);
+}
+
+/**
  * 处理多引用跳转
  * - 滚动到最小编号的片段（第一个引用）
  * - 高亮所有引用的片段
  * - 3秒后自动取消高亮
  */
-function scrollToChunks(ids: number[]) {
+function scrollToChunks(ids: string[]) {
   if (!ids || ids.length === 0) return;
-  // 过滤无效编号
-  const validIds = ids.filter((id) => !Number.isNaN(id) && id > 0);
+  // 过滤无效ID
+  const validIds = ids.filter((id) => id && id.trim());
   if (validIds.length === 0) return;
-  
+
   // 清除之前的高亮清除定时器
   if (highlightClearTimer) {
     clearTimeout(highlightClearTimer);
     highlightClearTimer = null;
   }
-  
-  // 找到最小编号（第一个引用位置）
-  const minId = Math.min(...validIds);
-  
-  // 设置高亮数组（所有引用编号）
+
+  // 设置高亮数组（所有引用ID）
   highlightChunks.value = validIds;
-  
-  // 滚动到最小编号的位置
-  textViewerRef.value?.scrollToChunk(minId);
+
+  // 滚动到第一个引用的位置
+  const firstId = validIds[0];
+  textViewerRef.value?.scrollToChunk(firstId);
   
   // 3秒后自动取消高亮
   highlightClearTimer = window.setTimeout(() => {
@@ -255,7 +271,7 @@ async function generateSummary() {
   const userMessage = `请基于以下文档片段生成摘要和关键点，严格输出 JSON：
 片段数量：${chunks.value.length}
 ------------
-${chunks.value.map((c, i) => `#${i + 1}: ${c}`).join("\n------------\n")}
+${chunks.value.map((c) => `#${c.index}: ${c.text}`).join("\n------------\n")}
 `;
 
   const messages = [
