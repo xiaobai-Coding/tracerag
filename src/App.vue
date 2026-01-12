@@ -127,7 +127,7 @@ import TextViewer from "./components/TextViewer.vue";
 import QASection from "./components/QASection.vue";
 import { extractPdfText } from "./utils/pdfParser";
 import { extractDocxText } from "./utils/docxParser";
-import { splitIntoChunksWithOverlap, type Chunk } from "./utils/chunk";
+import { splitIntoChunksWithOverlap, removeDuplicateChunks, type Chunk } from "./utils/chunk";
 import { streamDeepSeekAPI } from "./services/aiService";
 import { answerQuestion } from "./services/qaService";
 import { PARSE_SYSTEM_PROMPT } from "./prompts/prompt"
@@ -172,8 +172,12 @@ async function handleFile(file: File) {
     }
 
     text.value = await handler(file);
-    const overlapChunks = splitIntoChunksWithOverlap(text.value);
-    chunks.value = overlapChunks;
+    const overlapChunks = splitIntoChunksWithOverlap(text.value, 150, 30);
+    console.log('1.去重前的片段：', overlapChunks)
+    // 去重合并重复片段
+    const uniqueChunks = removeDuplicateChunks(overlapChunks);
+    chunks.value = uniqueChunks;
+    console.log('2.去重后的片段：', chunks.value)
     // 生成摘要
     await generateSummary();
   } catch (err: any) {

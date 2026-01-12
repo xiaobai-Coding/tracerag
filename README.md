@@ -31,6 +31,7 @@
 - ✅ 自动过滤：过滤少于 20 字符的段落
 - ✅ 递归切分：超过 400 字符的段落自动切半
 - ✅ 双重标识：每个片段有唯一 ID (chunk-1) 和显示下标 (1, 2, 3...)
+- ✅ 去重合并：基于余弦相似度自动去除重复片段（阈值 0.8）
 - ✅ Chunk 对象：包含 id、index、text、startPos、endPos 等完整信息
 
 ### 向量化与检索
@@ -489,6 +490,63 @@ export function splitIntoChunksWithOverlap(
 
     return result;
   }
+
+function calculateTextSimilarity(text1: string, text2: string): number {
+  if (!text1 || !text2) return 0;
+  if (text1 === text2) return 1;
+
+  const chars1 = text1.split('');
+  const chars2 = text2.split('');
+
+  const lcsLength = longestCommonSubsequence(chars1, chars2);
+  const maxLength = Math.max(chars1.length, chars2.length);
+
+  if (maxLength === 0) return 1;
+  return lcsLength / maxLength;
+}
+
+function longestCommonSubsequence(arr1: string[], arr2: string[]): number {
+  const m = arr1.length;
+  const n = arr2.length;
+  const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (arr1[i - 1] === arr2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  return dp[m][n];
+}
+
+export function removeDuplicateChunks(chunks: Chunk[], threshold: number = 0.8): Chunk[] {
+  if (!chunks || chunks.length <= 1) return chunks;
+
+  const uniqueChunks: Chunk[] = [];
+
+  for (const chunk of chunks) {
+    let isDuplicate = false;
+
+    for (const selectedChunk of uniqueChunks) {
+      const similarity = calculateTextSimilarity(chunk.text, selectedChunk.text);
+
+      if (similarity >= threshold) {
+        isDuplicate = true;
+        break;
+      }
+    }
+
+    if (!isDuplicate) {
+      uniqueChunks.push(chunk);
+    }
+  }
+
+  return uniqueChunks;
+}
 ```
 
 ## 🎨 UI 特性
@@ -527,6 +585,8 @@ export function splitIntoChunksWithOverlap(
     ↓
 文本分块（带唯一ID和下标）
     ↓
+去重合并（余弦相似度阈值0.8）
+    ↓
 向量化（DashScope Embedding）
     ↓
 向量缓存
@@ -558,10 +618,11 @@ Top-K 片段检索
 2. **MMR 算法**：平衡相关性和多样性，避免返回重复内容
 3. **证据三态判定**：基于相似度阈值的智能决策，避免无效回答和资源浪费
 4. **重叠分块**：保留上下文连续性，提高检索准确性
-5. **双重标识**：Chunk 同时有唯一 ID 和显示下标，确保引用稳定性和用户友好性
-6. **引用完整性检查**：验证 AI 引用是否完全基于提供的片段，防止幻觉回答
-7. **多格式引用支持**：支持数字和 chunk-ID 混合引用格式
-8. **引用标记**：回答中包含引用，便于追溯来源
+5. **去重合并**：基于余弦相似度自动去除重复片段，提高内容质量
+6. **双重标识**：Chunk 同时有唯一 ID 和显示下标，确保引用稳定性和用户友好性
+7. **引用完整性检查**：验证 AI 引用是否完全基于提供的片段，防止幻觉回答
+8. **多格式引用支持**：支持数字和 chunk-ID 混合引用格式
+9. **引用标记**：回答中包含引用，便于追溯来源
 
 ## ⚠️ 注意事项
 
@@ -589,9 +650,11 @@ Top-K 片段检索
 
 8. **引用完整性**：系统会严格验证 AI 引用是否在提供的文档片段中，确保回答可靠性
 
-9. **网络依赖**：向量化和问答功能依赖网络连接和 API 服务可用性
+9. **去重配置**：片段去重相似度阈值默认为 0.8，可根据需要调整
 
-10. **安全机制**：内置注入风险扫描、证据三态判定和引用完整性检查，确保回答质量和安全性
+10. **网络依赖**：向量化和问答功能依赖网络连接和 API 服务可用性
+
+11. **安全机制**：内置注入风险扫描、证据三态判定和引用完整性检查，确保回答质量和安全性
 
 ## 🔮 扩展方向
 
