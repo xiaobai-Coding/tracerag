@@ -202,7 +202,8 @@ function parseWithRefs(str: string): Segment[] {
     if (rawIds.length) {
       segments.push({ type: "ref", ids: rawIds });
     }
-    lastIndex = regex.lastIndex;
+    
+    lastIndex = regex.lastIndex; 
   }
   if (lastIndex < str.length) {
     segments.push({ type: "text", text: str.slice(lastIndex) });
@@ -219,14 +220,18 @@ function mapIdsToDisplayIndices(ids: string[]): string[] {
     const num = parseInt(id);
     if (!isNaN(num) && num > 0 && num <= props.chunks.length) {
       const chunk = props.chunks[num - 1]; // chunks数组是从0开始的
-      return chunk.index.toString();
+      if (chunk) {
+        return chunk.index.toString();
+      }
     }
     // 如果已经是chunk-id格式，转换为对应的index
     if (id.startsWith('chunk-')) {
       const num = parseInt(id.replace('chunk-', ''));
       if (!isNaN(num) && num > 0 && num <= props.chunks.length) {
         const chunk = props.chunks[num - 1];
-        return chunk.index.toString();
+        if (chunk) {
+          return chunk.index.toString();
+        }
       }
     }
     return id;
