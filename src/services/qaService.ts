@@ -56,7 +56,7 @@ export async function answerQuestion(
     0.7   // MMR lambda参数
   );
 
-  const topChunks = retrievalResult.selectedChunks.map((result, idx) => ({
+  const topChunks = retrievalResult.selectedChunks.map((result) => ({
     chunkId: chunks[result.index]?.id || `chunk-${result.index + 1}`,
     index: chunks[result.index]?.index || (result.index + 1),
     text: chunks[result.index]?.text || '',

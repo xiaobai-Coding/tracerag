@@ -232,7 +232,7 @@ function parseWithRefs(str: string): Segment[] {
 }
 
 // 策略选项配置
-const strategyOptions = [
+const strategyOptions: any = [
   { value: 'auto', label: 'auto' },
   { value: 'topk', label: 'TopK' },
   { value: 'mmr', label: 'MMR' }
@@ -240,7 +240,7 @@ const strategyOptions = [
 
 // 当前策略文本
 const currentStrategyText = computed(() => {
-  const option = strategyOptions.find(opt => opt.value === retrievalStrategy.value);
+  const option: any = strategyOptions.find((opt: any) => opt.value === retrievalStrategy.value);
   return option?.label || 'auto';
 });
 
