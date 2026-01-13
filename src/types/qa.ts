@@ -6,6 +6,8 @@ export interface QAMetrics {
   k: number;
   low: number;
   high: number;
+  context_chars: number;     // Context预算字符数
+  context_chunks: number;    // Context预算片段数
 }
 
 export interface QAResponse {

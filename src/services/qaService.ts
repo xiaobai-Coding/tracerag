@@ -1,5 +1,6 @@
 import { embedQuery, embedChunks } from "../utils/embedding";
 import { selectRetrievalChunks } from "../utils/similarity";
+import { applyContextBudget } from "../utils/chunk";
 import { streamDeepSeekAPI } from "./aiService";
 import { QA_SYSTEM_PROMPT } from "../prompts/prompt";
 import { decideEvidenceStatus } from "../utils/evidenceGate";
@@ -56,23 +57,45 @@ export async function answerQuestion(
     0.7   // MMR lambda参数
   );
 
-  const topChunks = retrievalResult.selectedChunks.map((result) => ({
-    chunkId: chunks[result.index]?.id || `chunk-${result.index + 1}`,
-    index: chunks[result.index]?.index || (result.index + 1),
-    text: chunks[result.index]?.text || '',
-    score: result.score,
-    relevance: result.score // 对于MMR这里是mmrScore，对于TopK是相似度
+  const retrievedChunks = retrievalResult.selectedChunks
+    .map((result) => chunks[result.index])
+    .filter((chunk): chunk is Chunk => chunk !== undefined);
+
+  const topChunks = retrievedChunks.map((chunk, idx) => ({
+    chunkId: chunk.id,
+    index: chunk.index,
+    text: chunk.text,
+    score: retrievalResult.selectedChunks[idx]?.score || 0,
+    relevance: retrievalResult.selectedChunks[idx]?.score || 0
   }));
 
   console.log(`${retrievalResult.strategyUsed.toUpperCase()} topK`, topChunks);
 
-  // 4. 证据三态判定
+  // 4. 证据三态判定（基于原始检索结果）
   const LOW = 0.40;
   const HIGH = 0.52;
   const top1Score = topChunks?.[0]?.relevance ?? 0;
   const status = decideEvidenceStatus(top1Score, LOW, HIGH);
-  // 生成 used_chunks（最多取 topK 的 chunk_id + score）
-  const used_chunks = topChunks.slice(0, k).map(chunk => ({
+
+  // 5. 应用Context预算控制（在证据判定之后）
+  const budgetResult = applyContextBudget(
+    question,
+    retrievedChunks,
+    2000, // 最大2000字符
+    3   // 最多3个片段
+  );
+
+  const finalTopChunks = budgetResult.selectedChunks.map((chunk) => ({
+    chunkId: chunk.id,
+    index: chunk.index,
+    text: chunk.text,
+    score: retrievalResult.selectedChunks.find(r => chunks[r.index] === chunk)?.score || 0,
+    relevance: retrievalResult.selectedChunks.find(r => chunks[r.index] === chunk)?.score || 0
+  }));
+
+  console.log(`${retrievalResult.strategyUsed.toUpperCase()} + Context Budget: ${budgetResult.chunkCount}片段, ${budgetResult.totalChars}字符`, finalTopChunks);
+  // 生成 used_chunks（基于预算处理后的结果）
+  const used_chunks = finalTopChunks.slice(0, k).map(chunk => ({
     chunk_id: chunk.chunkId,
     score: chunk.score
   }));
@@ -83,7 +106,9 @@ export async function answerQuestion(
     strategy: retrievalResult.strategyUsed,
     k,
     low: LOW,
-    high: HIGH
+    high: HIGH,
+    context_chars: budgetResult.totalChars,
+    context_chunks: budgetResult.chunkCount
   };
 
   // A) no_evidence：不调用 LLM，直接返回
@@ -114,7 +139,7 @@ export async function answerQuestion(
   }
 
   // C) has_evidence：继续走原本 LLM 回答流程
-  if (!topChunks.length) {
+  if (!finalTopChunks.length) {
     return {
       status: 'no_evidence' as EvidenceStatus,
       answer: null,
@@ -124,8 +149,8 @@ export async function answerQuestion(
     };
   }
 
-  // 构建提示词
-  const userChunks = topChunks
+  // 构建提示词（使用预算处理后的上下文）
+  const userChunks = finalTopChunks
     .map((item) => `#${item.chunkId}: ${item.text}`)
     .join("\n----\n");
 
