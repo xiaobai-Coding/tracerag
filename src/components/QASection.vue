@@ -3,6 +3,24 @@
     <div class="card-header">
       <div class="dot purple"></div>
       <span>RAG 文档问答</span>
+      <div class="strategy-selector-header">
+        <div class="strategy-dropdown" :class="{ open: showStrategyMenu }" @click="toggleStrategyMenu">
+          <span class="strategy-text">{{ currentStrategyText }}</span>
+          <div class="strategy-arrow">▼</div>
+        </div>
+        <div class="strategy-indicator" :class="currentStrategyClass"></div>
+        <div v-if="showStrategyMenu" class="strategy-menu">
+          <div
+            class="strategy-option"
+            v-for="option in strategyOptions"
+            :key="option.value"
+            :class="{ active: option.value === retrievalStrategy }"
+            @click.stop="selectStrategy(option.value)"
+          >
+            {{ option.label }}
+          </div>
+        </div>
+      </div>
       <span class="count" v-if="chunks?.length">片段 {{ chunks.length }} 个</span>
     </div>
 
@@ -156,7 +174,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import type { Chunk } from "../utils/chunk";
 import { answerQuestion } from "../services/qaService";
 import type { QAResponse } from "../types/qa";
@@ -173,6 +191,8 @@ const question = ref("");
 const loading = ref(false);
 const answer = ref<QAResponse | null>(null);
 const error = ref("");
+const retrievalStrategy = ref<"auto" | "topk" | "mmr">("auto");
+const showStrategyMenu = ref(false);
 
 type Segment =
   | { type: "text"; text: string }
@@ -209,6 +229,45 @@ function parseWithRefs(str: string): Segment[] {
     segments.push({ type: "text", text: str.slice(lastIndex) });
   }
   return segments;
+}
+
+// 策略选项配置
+const strategyOptions = [
+  { value: 'auto', label: 'auto' },
+  { value: 'topk', label: 'TopK' },
+  { value: 'mmr', label: 'MMR' }
+];
+
+// 当前策略文本
+const currentStrategyText = computed(() => {
+  const option = strategyOptions.find(opt => opt.value === retrievalStrategy.value);
+  return option?.label || 'auto';
+});
+
+// 当前策略指示器样式类
+const currentStrategyClass = computed(() => {
+  switch (retrievalStrategy.value) {
+    case 'auto': return 'indicator-auto';
+    case 'topk': return 'indicator-topk';
+    case 'mmr': return 'indicator-mmr';
+    default: return 'indicator-auto';
+  }
+});
+
+/**
+ * 切换策略菜单显示
+ */
+function toggleStrategyMenu() {
+  if (loading.value) return;
+  showStrategyMenu.value = !showStrategyMenu.value;
+}
+
+/**
+ * 选择策略
+ */
+function selectStrategy(strategy: "auto" | "topk" | "mmr") {
+  retrievalStrategy.value = strategy;
+  showStrategyMenu.value = false;
 }
 
 /**
@@ -282,6 +341,29 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
+/**
+ * 处理点击事件，关闭策略菜单
+ */
+function handleClickOutside(e: MouseEvent) {
+  const target = e.target as HTMLElement;
+  const dropdown = target.closest('.strategy-dropdown');
+  const menu = target.closest('.strategy-menu');
+
+  // 如果点击的不是下拉框或菜单，则关闭菜单
+  if (!dropdown && !menu) {
+    showStrategyMenu.value = false;
+  }
+}
+
+// 生命周期钩子
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+});
+
 // 文档提问
 async function handleAsk() {
   if (!question.value.trim()) return;
@@ -289,7 +371,7 @@ async function handleAsk() {
   error.value = "";
   answer.value = null;
   try {
-    const res = await answerQuestion(question.value, props.chunks);
+    const res = await answerQuestion(question.value, props.chunks, retrievalStrategy.value);
     answer.value = res;
   } catch (e: any) {
     error.value = e?.message || "提问失败，请重试";
@@ -322,6 +404,7 @@ async function handleAsk() {
   color: var(--text-1);
   margin-bottom: var(--space-3);
   font-size: var(--text-lg);
+  justify-content: space-between;
 }
 
 .qa-card .dot {
@@ -471,6 +554,157 @@ async function handleAsk() {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.strategy-selector-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.strategy-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.strategy-text {
+  font-size: 12px;
+  color: #666;
+  font-weight: 500;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.strategy-dropdown:hover .strategy-text {
+  background: rgba(99, 102, 241, 0.05);
+  color: #6366f1;
+}
+
+.strategy-dropdown.open .strategy-text {
+  background: rgba(99, 102, 241, 0.08);
+  color: #7c3aed;
+}
+
+.strategy-arrow {
+  font-size: 10px;
+  color: #6366f1;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+.strategy-dropdown:hover .strategy-arrow,
+.strategy-dropdown.open .strategy-arrow {
+  opacity: 1;
+  color: #7c3aed;
+}
+
+.strategy-dropdown.open .strategy-arrow {
+  transform: rotate(180deg);
+}
+
+.strategy-hint {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  animation: hintFadeIn 0.2s ease-out;
+}
+
+@keyframes hintFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hint-text {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 400;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.strategy-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+  z-index: 10000;
+  min-width: 80px;
+  margin-top: 4px;
+  padding: 4px 0;
+}
+
+.strategy-option {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.strategy-option:hover {
+  background: rgba(99, 102, 241, 0.05);
+  color: #6366f1;
+}
+
+.strategy-option.active {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+  font-weight: 500;
+}
+
+.strategy-option.active::after {
+  content: '✓';
+  position: absolute;
+  right: 8px;
+  color: #6366f1;
+  font-weight: bold;
+}
+
+.strategy-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 4px;
+  transition: all 0.2s ease;
+}
+
+.indicator-auto {
+  background: linear-gradient(135deg, #6366f1, #7c3aed);
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.4);
+}
+
+.indicator-topk {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+
+.indicator-mmr {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
 }
 
 .ask-btn {

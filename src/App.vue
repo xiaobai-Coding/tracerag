@@ -5,9 +5,9 @@
         <div class="hero-header">
           <p class="tag">
             <span class="tag-icon">📄</span>
-            <span>Document RAG · Parser</span>
+            <span>Document RAG · Q&A</span>
           </p>
-          <h1>Document Parser & Text Extraction</h1>
+          <h1>Document Parser & Extraction</h1>
         </div>
         <div class="hero-upload">
           <FileUploader @file-upload="handleFile" />
@@ -172,7 +172,7 @@ async function handleFile(file: File) {
     }
 
     text.value = await handler(file);
-    const overlapChunks = splitIntoChunksWithOverlap(text.value, 150, 30);
+    const overlapChunks = splitIntoChunksWithOverlap(text.value);
     console.log('1.去重前的片段：', overlapChunks)
     // 去重合并重复片段
     const uniqueChunks = removeDuplicateChunks(overlapChunks);

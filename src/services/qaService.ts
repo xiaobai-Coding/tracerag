@@ -1,7 +1,6 @@
 import { embedQuery, embedChunks } from "../utils/embedding";
-import { searchRelevantChunks } from "../utils/similarity";
+import { selectRetrievalChunks } from "../utils/similarity";
 import { streamDeepSeekAPI } from "./aiService";
-import { mmrSelect } from "../utils/mmr";
 import { QA_SYSTEM_PROMPT } from "../prompts/prompt";
 import { decideEvidenceStatus } from "../utils/evidenceGate";
 import type { QAResponse, QAMetrics, EvidenceStatus } from "../types/qa";
@@ -15,7 +14,8 @@ function chunkKey(text: string) {
 
 export async function answerQuestion(
   question: string,
-  chunks: Chunk[]
+  chunks: Chunk[],
+  strategy?: "auto" | "topk" | "mmr"
 ): Promise<QAResponse> {
   if (!question || !question.trim()) {
     throw new Error("question 不能为空");
@@ -44,28 +44,33 @@ export async function answerQuestion(
     (c) => chunkEmbeddingCache.get(chunkKey(c.text)) || []
   );
 
-  // 3. 在片段向量中检索最相关的 topK 片段 使用 MMR 算法
+  // 3. 使用统一的检索策略选择函数
   const k = 3;
-  const topResults = mmrSelect(queryVector, chunkVectors, k);
+  const retrievalResult = selectRetrievalChunks(
+    question,
+    queryVector,
+    chunks,
+    chunkVectors,
+    k,
+    strategy || "auto", // 使用传入的策略，默认auto
+    0.7   // MMR lambda参数
+  );
 
-  const topChunks = topResults.map((result) => ({
+  const topChunks = retrievalResult.selectedChunks.map((result, idx) => ({
     chunkId: chunks[result.index]?.id || `chunk-${result.index + 1}`,
     index: chunks[result.index]?.index || (result.index + 1),
     text: chunks[result.index]?.text || '',
-    score: result.mmrScore,
-    relevance: result.relevance
+    score: result.score,
+    relevance: result.score // 对于MMR这里是mmrScore，对于TopK是相似度
   }));
 
-  console.log("MMR topK", topChunks);
+  console.log(`${retrievalResult.strategyUsed.toUpperCase()} topK`, topChunks);
 
   // 4. 证据三态判定
   const LOW = 0.40;
   const HIGH = 0.52;
   const top1Score = topChunks?.[0]?.relevance ?? 0;
   const status = decideEvidenceStatus(top1Score, LOW, HIGH);
-
-  console.log(`[Evidence Gate] top1_score=${top1Score}, status=${status}, strategy=mmr`);
-
   // 生成 used_chunks（最多取 topK 的 chunk_id + score）
   const used_chunks = topChunks.slice(0, k).map(chunk => ({
     chunk_id: chunk.chunkId,
@@ -75,7 +80,7 @@ export async function answerQuestion(
   // 构建 metrics
   const metrics: QAMetrics = {
     top1_score: top1Score,
-    strategy: 'mmr',
+    strategy: retrievalResult.strategyUsed,
     k,
     low: LOW,
     high: HIGH

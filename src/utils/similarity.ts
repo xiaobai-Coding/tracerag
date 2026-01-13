@@ -1,3 +1,5 @@
+import { mmrSelect } from "./mmr";
+
 /**
  * 余弦相似度计算
  * 返回值范围 [0,1]（当向量包含负值时可能小于 0，此处截断为 0）
@@ -55,5 +57,72 @@ export function searchRelevantChunks(
   return results
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
+}
+
+/**
+ * 检索策略选择结果
+ */
+export interface RetrievalResult {
+  strategyUsed: "topk" | "mmr";
+  selectedChunks: { index: number; text: string; score: number }[];
+  scores: number[];
+}
+
+/**
+ * 统一的检索策略选择函数
+ * @param query 用户问题
+ * @param queryVector 用户问题向量
+ * @param chunks 文档片段数组
+ * @param chunkVectors 文档向量数组
+ * @param topK 返回文档数量
+ * @param strategy 策略选择（auto/topk/mmr）
+ * @param lambda MMR的λ参数
+ * @returns 检索结果
+ */
+export function selectRetrievalChunks(
+  query: string,
+  queryVector: number[],
+  chunks: { id: string; index: number; text: string }[],
+  chunkVectors: number[][],
+  topK: number = 3,
+  strategy: "auto" | "topk" | "mmr" = "auto",
+  lambda: number = 0.7
+): RetrievalResult {
+  // 自动策略选择：问题长度 < 50字 用 TopK，否则用 MMR
+  let strategyUsed: "topk" | "mmr" = "topk";
+
+  if (strategy === "auto") {
+    strategyUsed = query.length < 50 ? "topk" : "mmr";
+  } else {
+    strategyUsed = strategy;
+  }
+
+  console.log(`[Retrieval Strategy] Query length: ${query.length}, Strategy: ${strategyUsed}, Query: "${query}"`);
+
+  if (strategyUsed === "topk") {
+    // TopK 策略：直接按相似度排序取前topK个
+    const results = searchRelevantChunks(queryVector, chunkVectors, chunks.map(c => c.text), topK);
+
+    return {
+      strategyUsed: "topk",
+      selectedChunks: results,
+      scores: results.map(r => r.score)
+    };
+  } else {
+    // MMR 策略：最大边际相关性检索
+    const mmrResults = mmrSelect(queryVector, chunkVectors, topK, lambda);
+
+    const selectedChunks = mmrResults.map(result => ({
+      index: result.index,
+      text: chunks[result.index]?.text || "",
+      score: result.relevance // 使用原始相似度作为score，用于证据判定
+    }));
+
+    return {
+      strategyUsed: "mmr",
+      selectedChunks,
+      scores: mmrResults.map(r => r.relevance) // 返回原始相似度数组
+    };
+  }
 }
 

@@ -39,7 +39,8 @@
 - ✅ **向量缓存**：自动缓存已生成的向量，避免重复计算
 - ✅ **余弦相似度**：计算查询向量与文档向量的相似度
 - ✅ **MMR 算法**：最大边际相关性检索，平衡相关性和多样性
-- ✅ **Top-K 检索**：返回最相关的 3 个文档片段
+- ✅ **Top-K 检索**：直接按相似度排序的简单检索
+- ✅ **智能策略切换**：根据问题长度自动选择 TopK 或 MMR 策略
 - ✅ **引用完整性检查**：验证 AI 引用是否完全基于提供的片段，增强回答可靠性
 
 ### AI 问答
@@ -68,6 +69,9 @@
 ### 用户体验
 - 🎯 **拖拽上传**：支持拖拽文件到上传区域
 - ⌨️ **键盘快捷键**：Enter 发送，Shift+Enter 换行
+- 🔄 **检索策略选择**：标题栏按钮+下拉菜单，支持自动/TopK/MMR三种检索策略，带彩色指示器
+  - **自动策略**：问题长度<50字使用TopK，否则使用MMR
+  - **证据一致性**：两种策略都基于原始相似度进行证据三态判定
 - 📊 **状态反馈**：实时显示加载状态和错误信息
 - 📈 **统计信息**：显示字符数量、片段数量、引用数量
 - 🎨 **三栏布局**：AI 摘要、文档内容、文档问答三个卡片
@@ -358,6 +362,55 @@ export default async function handler(req: Request) {
 }
 ```
 
+### 智能检索策略切换
+
+```typescript
+// src/utils/similarity.ts - 核心检索逻辑
+export function selectRetrievalChunks(
+  query: string,
+  queryVector: number[],
+  chunks: Chunk[],
+  chunkVectors: number[][],
+  topK: number = 3,
+  strategy: "auto" | "topk" | "mmr" = "auto",
+  lambda: number = 0.7
+): RetrievalResult {
+  // 自动策略选择：问题长度 < 50字 用 TopK，否则用 MMR
+  const strategyUsed = strategy === "auto"
+    ? (query.length < 50 ? "topk" : "mmr")
+    : strategy;
+
+  if (strategyUsed === "topk") {
+    // TopK 策略：直接按相似度排序
+    const results = searchRelevantChunks(queryVector, chunkVectors, chunks, topK);
+    return { strategyUsed: "topk", selectedChunks: results, scores: results.map(r => r.score) };
+  } else {
+    // MMR 策略：最大边际相关性检索
+    const mmrResults = mmrSelect(queryVector, chunkVectors, topK, lambda);
+    const selectedChunks = mmrResults.map(result => ({
+      index: result.index,
+      text: chunks[result.index].text,
+      score: result.mmrScore
+    }));
+    return { strategyUsed: "mmr", selectedChunks, scores: mmrResults.map(r => r.mmrScore) };
+  }
+}
+
+// src/components/QASection.vue - UI组件
+<div class="strategy-selector-header">
+  <div class="strategy-dropdown" @click="toggleStrategyMenu">
+    <span class="strategy-text">{{ currentStrategyText }}</span>
+    <div class="strategy-arrow">▼</div>
+  </div>
+  <div class="strategy-indicator" :class="currentStrategyClass"></div>
+  <div v-if="showStrategyMenu" class="strategy-menu">
+    <div class="strategy-option" v-for="option in strategyOptions" :key="option.value" @click="selectStrategy(option.value)">
+      {{ option.label }}
+    </div>
+  </div>
+</div>
+```
+
 ### MMR 检索算法
 
 ```typescript
@@ -595,9 +648,9 @@ export function removeDuplicateChunks(chunks: Chunk[], threshold: number = 0.8):
     ↓
 问题向量化
     ↓
-语义检索（余弦相似度 + MMR）
+语义检索（智能策略选择）
     ↓
-Top-K 片段检索
+Top-K 或 MMR 检索（根据问题长度自动选择）
     ↓
 证据三态判定（有证据/需要澄清/无证据）
     ↓
@@ -617,12 +670,14 @@ Top-K 片段检索
 1. **向量化缓存**：避免重复计算，提升性能
 2. **MMR 算法**：平衡相关性和多样性，避免返回重复内容
 3. **证据三态判定**：基于相似度阈值的智能决策，避免无效回答和资源浪费
-4. **重叠分块**：保留上下文连续性，提高检索准确性
-5. **去重合并**：基于余弦相似度自动去除重复片段，提高内容质量
-6. **双重标识**：Chunk 同时有唯一 ID 和显示下标，确保引用稳定性和用户友好性
-7. **引用完整性检查**：验证 AI 引用是否完全基于提供的片段，防止幻觉回答
-8. **多格式引用支持**：支持数字和 chunk-ID 混合引用格式
-9. **引用标记**：回答中包含引用，便于追溯来源
+4. **智能检索策略**：根据问题长度自动选择 TopK 或 MMR 策略，优化检索效果
+5. **重叠分块**：保留上下文连续性，提高检索准确性
+6. **去重合并**：基于文本相似度自动去除重复片段，提高内容质量
+7. **双重标识**：Chunk 同时有唯一 ID 和显示下标，确保引用稳定性和用户友好性
+8. **引用完整性检查**：验证 AI 引用是否完全基于提供的片段，防止幻觉回答
+9. **多格式引用支持**：支持数字和 chunk-ID 混合引用格式
+10. **引用标记**：回答中包含引用，便于追溯来源
+11. **交互式策略选择**：用户界面提供优雅的下拉选择框，增强用户控制体验
 
 ## ⚠️ 注意事项
 
@@ -641,7 +696,12 @@ Top-K 片段检索
    - Top-K 默认值为 3
    - MMR lambda 默认值为 0.7（相关性权重）
 
-6. **证据三态判定阈值**：
+6. **智能检索策略**：
+   - 自动模式：问题长度 < 50字 使用 TopK，否则使用 MMR
+   - 支持手动指定策略：topk/mmr/auto
+   - UI界面提供下拉选择框，默认选择自动模式
+
+7. **证据三态判定阈值**：
    - LOW 阈值：0.40（相似度低于此值判定为无证据）
    - HIGH 阈值：0.52（相似度高于此值判定为有证据）
    - 中间区间（0.40-0.52）会返回澄清建议
