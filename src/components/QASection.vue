@@ -177,7 +177,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import type { Chunk } from "../utils/chunk";
 import { answerQuestion } from "../services/qaService";
-import type { QAResponse } from "../types/qa";
+import type { QAResponse, ChatMessage } from "../types/qa";
 
 const props = defineProps<{
   chunks: Chunk[];
@@ -193,6 +193,8 @@ const answer = ref<QAResponse | null>(null);
 const error = ref("");
 const retrievalStrategy = ref<"auto" | "topk" | "mmr">("auto");
 const showStrategyMenu = ref(false);
+// 多轮对话历史，只保留最近若干轮
+const chatHistory = ref<ChatMessage[]>([]);
 
 type Segment =
   | { type: "text"; text: string }
@@ -371,8 +373,42 @@ async function handleAsk() {
   error.value = "";
   answer.value = null;
   try {
-    const res = await answerQuestion(question.value, props.chunks, retrievalStrategy.value);
+    const res = await answerQuestion(
+      question.value,
+      props.chunks,
+      retrievalStrategy.value,
+      chatHistory.value
+    );
     answer.value = res;
+
+    // 将当前轮对话写入历史，只保留最近 3-5 轮以控制 Token
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: question.value.trim(),
+    };
+
+    let assistantContent = "";
+    if (res.status === "has_evidence") {
+      assistantContent = res.answer || "";
+    } else if (res.status === "no_evidence") {
+      assistantContent = "文档中没有找到足够的相关信息来回答这个问题。";
+    } else if (res.status === "need_clarify") {
+      assistantContent =
+        res.clarify_options?.join("\n") || "你的问题比较模糊，请再具体一些。";
+    }
+
+    const assistantMsg: ChatMessage = {
+      role: "assistant",
+      content: assistantContent,
+    };
+
+    const nextHistory = [...chatHistory.value, userMsg, assistantMsg];
+    const MAX_ROUNDS = 5; // 最多保留 5 轮（10 条消息）
+    if (nextHistory.length > MAX_ROUNDS * 2) {
+      chatHistory.value = nextHistory.slice(nextHistory.length - MAX_ROUNDS * 2);
+    } else {
+      chatHistory.value = nextHistory;
+    }
   } catch (e: any) {
     error.value = e?.message || "提问失败，请重试";
   } finally {

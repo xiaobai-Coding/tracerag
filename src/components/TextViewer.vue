@@ -5,7 +5,7 @@
       :key="chunk.id"
       class="chunk-block"
       :data-chunk-id="chunk.id"
-      :class="{
+      :class="{ 
         active: isHighlighted(chunk.id),
         flash: isFlashing(chunk.id)
       }"

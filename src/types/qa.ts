@@ -20,3 +20,13 @@ export interface QAResponse {
   need_clarify?: boolean;
   clarify_options?: string[];
 }
+
+// 多轮对话消息类型
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+// 对话历史：按时间顺序存储最近若干轮 Q&A
+export type ChatHistory = ChatMessage[];
+

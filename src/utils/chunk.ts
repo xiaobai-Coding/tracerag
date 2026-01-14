@@ -116,17 +116,17 @@ export function splitIntoChunksWithOverlap(
     overlapSize: number = 80
   ): Chunk[] {
     if (!text || chunkSize <= 0) return [];
-
+  
     const result: Chunk[] = [];
     const cleaned = text.trim().replace(/\s+/g, " "); // 简单清洗
-
+  
     let start = 0;
     let chunkIndex = 1;
 
     while (start < cleaned.length) {
       const end = Math.min(start + chunkSize, cleaned.length);
       const chunkText = cleaned.slice(start, end);
-
+  
       if (chunkText.length >= 20) {
         result.push({
           id: `chunk-${chunkIndex}`,
@@ -137,7 +137,7 @@ export function splitIntoChunksWithOverlap(
         });
         chunkIndex++;
       }
-
+  
       start += chunkSize - overlapSize; // 往前走但保留部分重叠
     }
 
@@ -507,6 +507,6 @@ export function applyContextBudget(
 
   console.log(`[Context Budget] 最终结果: ${selectedChunks.length}个片段, ${finalTotalChars}字符`);
   console.log(`[Context Budget] 选中的片段ID: ${selectedChunks.map(c => c.id).join(', ')}`);
-
-  return result;
-}
+  
+    return result;
+  }

@@ -4,8 +4,14 @@ import { applyContextBudget } from "../utils/chunk";
 import { streamDeepSeekAPI } from "./aiService";
 import { QA_SYSTEM_PROMPT } from "../prompts/prompt";
 import { decideEvidenceStatus } from "../utils/evidenceGate";
-import type { QAResponse, QAMetrics, EvidenceStatus } from "../types/qa";
+import type {
+  QAResponse,
+  QAMetrics,
+  EvidenceStatus,
+  ChatMessage,
+} from "../types/qa";
 import type { Chunk } from "../utils/chunk";
+import { getStandaloneQuery } from "../utils/queryRewriter";
 
 const chunkEmbeddingCache = new Map<string, number[]>();
 
@@ -16,7 +22,8 @@ function chunkKey(text: string) {
 export async function answerQuestion(
   question: string,
   chunks: Chunk[],
-  strategy?: "auto" | "topk" | "mmr"
+  strategy?: "auto" | "topk" | "mmr",
+  history: ChatMessage[] = []
 ): Promise<QAResponse> {
   if (!question || !question.trim()) {
     throw new Error("question 不能为空");
@@ -24,8 +31,68 @@ export async function answerQuestion(
   if (!Array.isArray(chunks) || !chunks.length) {
     throw new Error("chunks 不能为空");
   }
-  // 1. 对用户问题进行向量化
-  const queryVector = await embedQuery(question);
+
+  // 0. 先进行查询重写，得到独立检索词
+  const standaloneQuery = await getStandaloneQuery(history, question);
+  console.log(
+    "[RAG] standalone query:",
+    standaloneQuery,
+    "raw question:",
+    question
+  );
+
+  // 如果是闲聊/不需要检索，直接走普通对话，不做向量检索
+  if (standaloneQuery === "NO_SEARCH_NEEDED") {
+    const historyText =
+      history && history.length
+        ? history
+            .map((m, idx) => {
+              const prefix = m.role === "user" ? "用户" : "助手";
+              return `${idx + 1}. ${prefix}：${m.content}`;
+            })
+            .join("\n")
+        : "（无）";
+
+    const messages = [
+      { role: "system", content: QA_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content:
+          `[对话历史]\n${historyText}\n\n` +
+          `[当前问题]\n${question}\n\n` +
+          "当前问题被识别为与文档检索无关的闲聊/自然对话，请直接进行自然回复，不要引用文档片段，也不要伪造引用。",
+      },
+    ];
+
+    const res = await streamDeepSeekAPI(messages, false);
+    const parsed: any = res;
+    const answerText =
+      parsed?.answer ||
+      (typeof parsed === "string" ? parsed : "") ||
+      "我在这里～";
+
+    const metrics: QAMetrics = {
+      top1_score: 0,
+      strategy: "topk",
+      k: 0,
+      low: 0,
+      high: 0,
+      context_chars: 0,
+      context_chunks: 0,
+    };
+
+    return {
+      status: "has_evidence",
+      answer: answerText,
+      used_chunks: [],
+      metrics,
+      need_clarify: false,
+      citations: [],
+    };
+  }
+
+  // 1. 对重写后的查询进行向量化
+  const queryVector = await embedQuery(standaloneQuery);
   // 2. 对文档片段进行向量化，并缓存
   const missing: { idx: number; chunk: Chunk }[] = [];
   chunks.forEach((c, i) => {
@@ -48,7 +115,7 @@ export async function answerQuestion(
   // 3. 使用统一的检索策略选择函数
   const k = 3;
   const retrievalResult = selectRetrievalChunks(
-    question,
+    standaloneQuery,
     queryVector,
     chunks,
     chunkVectors,
@@ -79,10 +146,10 @@ export async function answerQuestion(
 
   // 5. 应用Context预算控制（在证据判定之后）
   const budgetResult = applyContextBudget(
-    question,
+    standaloneQuery,
     retrievedChunks,
     2000, // 最大2000字符
-    3   // 最多3个片段
+    3 // 最多3个片段
   );
 
   const finalTopChunks = budgetResult.selectedChunks.map((chunk) => ({
@@ -154,12 +221,27 @@ export async function answerQuestion(
     .map((item) => `#${item.chunkId}: ${item.text}`)
     .join("\n----\n");
 
+  const historyText =
+    history && history.length
+      ? history
+          .map((m, idx) => {
+            const prefix = m.role === "user" ? "用户" : "助手";
+            return `${idx + 1}. ${prefix}：${m.content}`;
+          })
+          .join("\n")
+      : "（无）";
+
   const messages = [
     { role: "system", content: QA_SYSTEM_PROMPT },
+    // 在 System Prompt 之后插入对话历史，再给出当前检索上下文，避免证据污染
     {
       role: "user",
-      content: `用户问题：${question}\n\n相关文档片段（按相关度排序，# 为片段编号）：\n${userChunks}\n\n请按指定 JSON 格式回答。`
-    }
+      content:
+        `[对话历史]\n${historyText}\n\n` +
+        `[当前问题]\n${question}\n\n` +
+        `[当前证据]（按相关度排序，# 为片段编号）\n${userChunks}\n\n` +
+        "请结合上述对话历史和当前证据，用中文按指定 JSON 格式回答，其中 sources 字段只能引用上文出现的片段编号。",
+    },
   ];
 
   // 调用 DeepSeek API 进行回答
