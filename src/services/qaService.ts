@@ -2,7 +2,7 @@ import { embedQuery, embedChunks } from "../utils/embedding";
 import { selectRetrievalChunks } from "../utils/similarity";
 import { applyContextBudget } from "../utils/chunk";
 import { streamDeepSeekAPI } from "./aiService";
-import { QA_SYSTEM_PROMPT } from "../prompts/prompt";
+import { QA_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT } from "../prompts/prompt";
 import { decideEvidenceStatus } from "../utils/evidenceGate";
 import type {
   QAResponse,
@@ -12,6 +12,7 @@ import type {
 } from "../types/qa";
 import type { Chunk } from "../utils/chunk";
 import { getStandaloneQuery } from "../utils/queryRewriter";
+import { getChatStatistics } from "../utils/chatHistory";
 
 const chunkEmbeddingCache = new Map<string, number[]>();
 
@@ -31,11 +32,14 @@ export async function answerQuestion(
   if (!Array.isArray(chunks) || !chunks.length) {
     throw new Error("chunks 不能为空");
   }
-
+  // 统计对话轮次信息
+  // const chatStats = getChatStatistics(history);
+  // console.log("[RAG] 对话轮次统计:", chatStats);
+  
   // 0. 先进行查询重写，得到独立检索词
   const standaloneQuery = await getStandaloneQuery(history, question);
   console.log(
-    "[RAG] standalone query:",
+    "[RAG] standalone query===>>>:",
     standaloneQuery,
     "raw question:",
     question
@@ -47,20 +51,19 @@ export async function answerQuestion(
       history && history.length
         ? history
             .map((m, idx) => {
-              const prefix = m.role === "user" ? "用户" : "助手";
+              const prefix = m.role === "user" ? "user" : "assistant";
               return `${idx + 1}. ${prefix}：${m.content}`;
             })
             .join("\n")
         : "（无）";
 
     const messages = [
-      { role: "system", content: QA_SYSTEM_PROMPT },
+      { role: "system", content: CHAT_SYSTEM_PROMPT },
       {
         role: "user",
         content:
           `[对话历史]\n${historyText}\n\n` +
-          `[当前问题]\n${question}\n\n` +
-          "当前问题被识别为与文档检索无关的闲聊/自然对话，请直接进行自然回复，不要引用文档片段，也不要伪造引用。",
+          `[当前问题]\n${question}\n\n`,
       },
     ];
 
@@ -225,7 +228,7 @@ export async function answerQuestion(
     history && history.length
       ? history
           .map((m, idx) => {
-            const prefix = m.role === "user" ? "用户" : "助手";
+            const prefix = m.role === "user" ? "user" : "assistant";
             return `${idx + 1}. ${prefix}：${m.content}`;
           })
           .join("\n")
@@ -237,9 +240,9 @@ export async function answerQuestion(
     {
       role: "user",
       content:
-        `[对话历史]\n${historyText}\n\n` +
-        `[当前问题]\n${question}\n\n` +
-        `[当前证据]（按相关度排序，# 为片段编号）\n${userChunks}\n\n` +
+        `[对话历史]（Chat History）这是你和用户之前的对话背景，仅供参考指代关系，不可作为事实来源：\n${historyText}\n\n` +
+        `[当前问题]（Current Query）这是用户最新的问题，你必须按照这个问题回答：\n${question}\n\n` +
+        `[当前证据]（Current Evidence）（按相关度排序，# 为片段编号）这是从文档中检索到的最新事实，你必须优先基于此内容回答：\n${userChunks}\n\n` +
         "请结合上述对话历史和当前证据，用中文按指定 JSON 格式回答，其中 sources 字段只能引用上文出现的片段编号。",
     },
   ];

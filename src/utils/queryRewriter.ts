@@ -23,26 +23,24 @@ export async function getStandaloneQuery(
     history && history.length
       ? history
           .map((m, idx) => {
-            const prefix = m.role === "user" ? "用户" : "助手";
+            const prefix = m.role === "user" ? "user" : "assistant";
             return `${idx + 1}. ${prefix}：${m.content}`;
           })
           .join("\n")
       : "（无）";
 
-  const systemPrompt = REWRITE_PROMPT
+const userPrompt = `
 
-  const userPrompt = `
-
-【对话历史】
+【对话历史（Chat History）】
 ${historyText}
 
-【当前用户问题】
+【当前用户问题 （Current Query）】
 ${question}
 `.trim();
 
   const requestBody = {
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: REWRITE_PROMPT },
       { role: "user", content: userPrompt },
     ],
     // 标记不需要流式，只要一次性响应；temperature 在服务端也会设置为较低值

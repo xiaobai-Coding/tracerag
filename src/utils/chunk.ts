@@ -332,14 +332,9 @@ function evaluateCoverage(selectedChunks: Chunk[], keywords: string[]): number {
 
   // 调试信息
   if (selectedChunks.length <= 3) {
-    console.log(`[Coverage] 关键词: [${keywords.join(', ')}] (${keywords.length}个)`);
-    console.log(`[Coverage] 覆盖: ${coveredKeywords}/${keywords.length} (${(keywordCoverage * 100).toFixed(1)}%)`);
-    console.log(`[Coverage] 长度: ${totalChars}/${expectedChars} (${(lengthFactor * 100).toFixed(1)}%)`);
-    console.log(`[Coverage] 完整性: ${(completenessFactor * 100).toFixed(1)}%`);
+   
     if (selectedChunks.length >= 3) {
-      console.log(`[Coverage] 冗余控制: ${(redundancyFactor * 100).toFixed(1)}%`);
     }
-    console.log(`[Coverage] 综合覆盖度: ${(coverage * 100).toFixed(1)}%`);
   }
 
   return Math.min(coverage, 1);
@@ -370,8 +365,6 @@ export function applyContextBudget(
 
   // 1. 提取关键词
   const keywords = extractKeywords(query);
-  console.log(`[Context Budget] 查询: "${query}"`);
-  console.log(`[Context Budget] 提取关键词: [${keywords.join(', ')}] (${keywords.length}个)`);
 
   // 紧急检查：如果没有关键词，直接返回第一个片段
   if (keywords.length === 0) {
@@ -395,7 +388,7 @@ export function applyContextBudget(
     const combinedScore = positionScore * 0.7 + keywordScore * 0.3; // 加权组合
 
     // 调试：显示每个片段的评分详情
-    console.log(`[Context Budget] 片段 ${index + 1} 评分: 关键词=${(keywordScore * 100).toFixed(1)}%, 位置=${(positionScore * 100).toFixed(1)}%, 综合=${(combinedScore * 100).toFixed(1)}%`);
+    // console.log(`[Context Budget] 片段 ${index + 1} 评分: 关键词=${(keywordScore * 100).toFixed(1)}%, 位置=${(positionScore * 100).toFixed(1)}%, 综合=${(combinedScore * 100).toFixed(1)}%`);
 
     return {
       chunk,
@@ -415,7 +408,7 @@ export function applyContextBudget(
   for (const scoredChunk of scoredChunks) {
     // 检查硬性限制
     if (selectedChunks.length >= effectiveMaxChunks) {
-      console.log(`[Context Budget] 达到最大片段数限制: ${effectiveMaxChunks}`);
+      // console.log(`[Context Budget] 达到最大片段数限制: ${effectiveMaxChunks}`);
       break;
     }
 
@@ -425,7 +418,7 @@ export function applyContextBudget(
 
     // 如果超出字符数限制，停止添加
     if (projectedTotalChars > maxLength && selectedChunks.length > 0) {
-      console.log(`[Context Budget] 字符数将超出限制，停止添加`);
+      // console.log(`[Context Budget] 字符数将超出限制，停止添加`);
       break;
     }
 
@@ -435,36 +428,36 @@ export function applyContextBudget(
 
     // 评估当前覆盖度
     const currentCoverage = evaluateCoverage(selectedChunks, keywords);
-    console.log(`[Context Budget] 当前片段数: ${selectedChunks.length}, 覆盖度: ${(currentCoverage * 100).toFixed(1)}%`);
+    // console.log(`[Context Budget] 当前片段数: ${selectedChunks.length}, 覆盖度: ${(currentCoverage * 100).toFixed(1)}%`);
 
     // 调试：显示当前片段内容摘要
     const chunkSummary = selectedChunks.map((chunk, idx) =>
       `${idx + 1}: "${chunk.text.substring(0, 50)}..." (${chunk.text.length}chars)`
     ).join('\n');
-    console.log(`[Context Budget] 当前片段内容:\n${chunkSummary}`);
+    // console.log(`[Context Budget] 当前片段内容:\n${chunkSummary}`);
 
     // 关键改进：更严格的停止条件
     // 1. 如果第一个片段覆盖度超过90%，直接停止（问题答案很可能就在这里）
     if (selectedChunks.length === 1 && currentCoverage >= 0.90) {
-      console.log(`[Context Budget] ✅ 第一个片段已完全覆盖问题 (${(currentCoverage * 100).toFixed(1)}%)，无需更多片段`);
+      // console.log(`[Context Budget] ✅ 第一个片段已完全覆盖问题 (${(currentCoverage * 100).toFixed(1)}%)，无需更多片段`);
       break;
     }
 
     // 2. 如果第一个片段覆盖度超过80%且字符数足够，停止
     if (selectedChunks.length === 1 && currentCoverage >= 0.80 && totalChars >= 200) {
-      console.log(`[Context Budget] ✅ 第一个片段覆盖度较高 (${(currentCoverage * 100).toFixed(1)}%)且信息充足，停止添加`);
+      // console.log(`[Context Budget] ✅ 第一个片段覆盖度较高 (${(currentCoverage * 100).toFixed(1)}%)且信息充足，停止添加`);
       break;
     }
 
     // 3. 如果第一个片段覆盖度超过60%且字符数足够，停止（进一步降低阈值）
     if (selectedChunks.length === 1 && currentCoverage >= 0.60 && totalChars >= 150) {
-      console.log(`[Context Budget] ✅ 第一个片段覆盖度及格 (${(currentCoverage * 100).toFixed(1)}%)且内容充足，停止添加`);
+      // console.log(`[Context Budget] ✅ 第一个片段覆盖度及格 (${(currentCoverage * 100).toFixed(1)}%)且内容充足，停止添加`);
       break;
     }
 
     // 4. 安全检查：如果覆盖度已经不错，停止
     if (selectedChunks.length === 1 && currentCoverage >= 0.50 && totalChars >= 200) {
-      console.log(`[Context Budget] ✅ 第一个片段有一定相关性 (${(currentCoverage * 100).toFixed(1)}%)，避免过度添加`);
+      // console.log(`[Context Budget] ✅ 第一个片段有一定相关性 (${(currentCoverage * 100).toFixed(1)}%)，避免过度添加`);
       break;
     }
 
@@ -472,7 +465,7 @@ export function applyContextBudget(
     if (selectedChunks.length >= 2) {
       // 如果覆盖度已经很高（85%以上），考虑停止
       if (currentCoverage >= 0.85) {
-        console.log(`[Context Budget] 多片段已充分覆盖问题 (${(currentCoverage * 100).toFixed(1)}%)，停止添加`);
+        // console.log(`[Context Budget] 多片段已充分覆盖问题 (${(currentCoverage * 100).toFixed(1)}%)，停止添加`);
         break;
       }
 
@@ -482,7 +475,7 @@ export function applyContextBudget(
 
     // 4. 安全检查：避免过度添加（最多不超过合理数量）
     if (selectedChunks.length >= 3 && currentCoverage < 0.8) {
-      console.log(`[Context Budget] 已添加较多片段但覆盖度仍不足，强制停止以避免过度检索`);
+      // console.log(`[Context Budget] 已添加较多片段但覆盖度仍不足，强制停止以避免过度检索`);
       break;
     }
   }
@@ -495,7 +488,7 @@ export function applyContextBudget(
   if (contextText.length > maxLength) {
     contextText = contextText.substring(0, maxLength);
     finalTotalChars = maxLength;
-    console.log(`[Context Budget] 文本超出限制，已裁剪至 ${maxLength} 字符`);
+    // console.log(`[Context Budget] 文本超出限制，已裁剪至 ${maxLength} 字符`);
   }
 
   const result: ContextBudgetResult = {
