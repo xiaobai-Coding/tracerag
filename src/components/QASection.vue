@@ -56,128 +56,90 @@
       </div>
     </div>
 
-    <!-- Loading 状态 -->
-    <div class="qa-loading" v-if="loading && !answer">
-      <div class="loading-card">
-        <div class="loading-animation">
-          <div class="loading-dot"></div>
-          <div class="loading-dot"></div>
-          <div class="loading-dot"></div>
-        </div>
-        <p class="loading-message">AI 正在分析文档并生成回答...</p>
-      </div>
-    </div>
-
-    <!-- 证据不足状态 -->
-    <div class="qa-no-evidence" v-else-if="answer?.status === 'no_evidence'">
-      <div class="evidence-header">
-        <div class="evidence-icon">❌</div>
-        <div>
-          <div class="evidence-title">证据不足</div>
-          <div class="evidence-subtitle">文档中未找到相关信息</div>
-        </div>
-      </div>
-      <div class="evidence-content">
-        <p class="evidence-text">抱歉，文档内容中没有找到足够的相关信息来回答您的问题。</p>
-        <div class="evidence-metrics" v-if="answer.metrics">
-          <span class="metrics-label">检索信息：</span>
-          <span class="metrics-value">最高相似度 {{ (answer.metrics.top1_score * 100).toFixed(1) }}%</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 需要澄清状态 -->
-    <div class="qa-need-clarify" v-else-if="answer?.status === 'need_clarify'">
-      <div class="clarify-header">
-        <div class="clarify-icon">🤔</div>
-        <div>
-          <div class="clarify-title">需要澄清</div>
-          <div class="clarify-subtitle">请提供更多具体信息</div>
-        </div>
-      </div>
-      <div class="clarify-content">
-        <p class="clarify-text">您的问题比较模糊，请尝试：</p>
-        <ul class="clarify-options">
-          <li v-for="(option, idx) in answer.clarify_options" :key="idx" class="clarify-option">
-            {{ option }}
-          </li>
-        </ul>
-        <div class="clarify-metrics" v-if="answer.metrics">
-          <span class="metrics-label">检索信息：</span>
-          <span class="metrics-value">相似度 {{ (answer.metrics.top1_score * 100).toFixed(1) }}% ({{ answer.metrics.low * 100 }}%-{{ answer.metrics.high * 100 }}% 区间)</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- AI 回答卡片 -->
-    <div class="qa-answer" v-else-if="answer?.status === 'has_evidence'">
-      <div class="answer-header">
-        <div class="answer-title-wrapper">
-          <div class="answer-icon">✨</div>
-          <div>
-            <div class="answer-title">AI 回答</div>
-            <div class="answer-subtitle">基于文档内容生成</div>
-          </div>
-        </div>
-        <div class="answer-badge" v-if="answer.citations?.length">
-          {{ answer.citations.length }} 个引用
-        </div>
-      </div>
-      <div class="answer-content">
-        <p class="answer-text">
-          <span v-for="(seg, idx) in parseWithRefs(answer.answer || '')" :key="`ans-${idx}`">
-            <template v-if="seg.type === 'text'">{{ seg.text }}</template>
-            <span v-else class="ref-group">
-              <a
-                href="#"
-                class="ref-link"
-                @click.prevent="handleRefClick(seg.ids)"
-              >[[{{ seg.ids.join(',') }}]]</a>
-            </span>
-          </span>
-        </p>
-        <div class="sources" v-if="answer.citations?.length">
-          <span class="source-label">
-            <span class="source-icon">📎</span>
-            引用片段：
-          </span>
-          <div class="source-chips">
-            <button
-              v-for="s in answer.citations"
-              :key="s"
-              class="source-chip"
-              @click="handleRefClick([s])"
+    <!-- 对话气泡列表 -->
+    <div class="qa-chat" ref="chatContainer">
+      <div
+        v-for="(msg, idx) in messages"
+        :key="idx"
+        class="chat-row"
+        :class="msg.role === 'user' ? 'chat-row-user' : 'chat-row-assistant'"
+      >
+        <div
+          class="chat-bubble"
+          :class="msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-assistant'"
+        >
+          <div class="chat-content">
+            <span
+              v-for="(seg, j) in parseWithRefs(msg.content)"
+              :key="`m-${idx}-${j}`"
             >
-              #{{ mapIdsToDisplayIndices([s])[0] }}
-            </button>
+              <template v-if="seg.type === 'text'">
+                {{ seg.text }}
+              </template>
+              <span v-else class="ref-group">
+                <a
+                  href="#"
+                  class="ref-link"
+                  @click.prevent="handleRefClick(seg.ids)"
+                >[[{{ seg.ids.join(',') }}]]</a>
+              </span>
+            </span>
+          </div>
+          <div
+            v-if="msg.citations && msg.citations.length"
+            class="chat-sources"
+          >
+            <span class="source-label">
+              <span class="source-icon">📎</span>
+              引用片段：
+            </span>
+            <div class="source-chips">
+              <button
+                v-for="s in msg.citations"
+                :key="s"
+                class="source-chip"
+                @click="handleRefClick([s])"
+              >
+                #{{ mapIdsToDisplayIndices([s])[0] }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- 错误状态 -->
-    <div class="qa-error" v-else-if="error">
-      <div class="error-icon">⚠️</div>
-      <div class="error-content">
-        <div class="error-title">出错了</div>
-        <div class="error-message">{{ error }}</div>
+      <!-- 空状态 -->
+      <div class="qa-placeholder" v-if="!messages.length && !loading && !error">
+        <div class="placeholder-icon">💡</div>
+        <p class="placeholder-text">提问后将在这里展示 AI 对话</p>
+        <p class="placeholder-hint">支持多轮对话与引用跳转，试着问点什么吧</p>
       </div>
-    </div>
 
-    <!-- 占位符 -->
-    <div class="qa-placeholder" v-else>
-      <div class="placeholder-icon">💡</div>
-      <p class="placeholder-text">提问后将在这里展示 AI 回答</p>
-      <p class="placeholder-hint">支持多引用格式，点击引用可跳转到对应片段</p>
+      <!-- 错误状态 -->
+      <div class="qa-error" v-if="error">
+        <div class="error-icon">⚠️</div>
+        <div class="error-content">
+          <div class="error-title">出错了</div>
+          <div class="error-message">{{ error }}</div>
+        </div>
+      </div>
+
+      <!-- Loading 气泡 -->
+      <div class="chat-row chat-row-assistant" v-if="loading">
+        <div class="chat-bubble chat-bubble-assistant loading-bubble">
+          <div class="loading-dots">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import type { Chunk } from "../utils/chunk";
 import { answerQuestion } from "../services/qaService";
-import type { QAResponse, ChatMessage } from "../types/qa";
+import type { ChatMessage, QAResponse } from "../types/qa";
 
 const props = defineProps<{
   chunks: Chunk[];
@@ -189,12 +151,20 @@ const emit = defineEmits<{
 
 const question = ref("");
 const loading = ref(false);
-const answer = ref<QAResponse | null>(null);
 const error = ref("");
 const retrievalStrategy = ref<"auto" | "topk" | "mmr">("auto");
 const showStrategyMenu = ref(false);
-// 多轮对话历史，只保留最近若干轮
+// 后端使用的多轮对话历史
 const chatHistory = ref<ChatMessage[]>([]);
+
+// 前端展示用的对话消息列表
+type UIBubble = {
+  role: "user" | "assistant";
+  content: string;
+  citations?: string[];
+};
+const messages = ref<UIBubble[]>([]);
+const chatContainer = ref<HTMLElement | null>(null);
 
 type Segment =
   | { type: "text"; text: string }
@@ -369,27 +339,37 @@ onUnmounted(() => {
 // 文档提问
 async function handleAsk() {
   if (!question.value.trim()) return;
+  const currentQuestion = question.value.trim();
+  // 先将用户消息追加到对话列表
+  messages.value.push({
+    role: "user",
+    content: currentQuestion,
+  });
+  await nextTick();
+  if (chatContainer.value) {
+    chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+  }
+
   loading.value = true;
   error.value = "";
-  answer.value = null;
   try {
     const res = await answerQuestion(
-      question.value,
+      currentQuestion,
       props.chunks,
       retrievalStrategy.value,
       chatHistory.value
     );
-    answer.value = res;
 
-    // 将当前轮对话写入历史，只保留最近 3-5 轮以控制 Token
     const userMsg: ChatMessage = {
       role: "user",
-      content: question.value.trim(),
+      content: currentQuestion,
     };
 
     let assistantContent = "";
+    let assistantCitations: string[] | undefined;
     if (res.status === "has_evidence") {
       assistantContent = res.answer || "";
+      assistantCitations = res.citations || [];
     } else if (res.status === "no_evidence") {
       assistantContent = "文档中没有找到足够的相关信息来回答这个问题。";
     } else if (res.status === "need_clarify") {
@@ -400,12 +380,28 @@ async function handleAsk() {
     const assistantMsg: ChatMessage = {
       role: "assistant",
       content: assistantContent,
+      usedChunks: res.used_chunks_detail,
     };
 
     // 将当前轮对话写入历史
     // 注意：不再限制历史长度，由后端的 summarizeHistory 函数自动管理 Token
     // 前端保持完整历史记录，以便用户查看完整对话过程
     chatHistory.value = [...chatHistory.value, userMsg, assistantMsg];
+
+    // 将助手回答追加到对话气泡
+    messages.value.push({
+      role: "assistant",
+      content: assistantContent,
+      citations: assistantCitations,
+    });
+
+    await nextTick();
+    if (chatContainer.value) {
+      chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+    }
+
+    // 清空输入框
+    question.value = "";
   } catch (e: any) {
     error.value = e?.message || "提问失败，请重试";
   } finally {
@@ -463,11 +459,9 @@ async function handleAsk() {
 }
 
 .qa-card .qa-loading,
-.qa-card .qa-answer,
-.qa-card .qa-no-evidence,
-.qa-card .qa-need-clarify,
 .qa-card .qa-error,
-.qa-card .qa-placeholder {
+.qa-card .qa-placeholder,
+.qa-card .qa-chat {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
@@ -477,14 +471,16 @@ async function handleAsk() {
 .qa-card .qa-answer::-webkit-scrollbar,
 .qa-card .qa-loading::-webkit-scrollbar,
 .qa-card .qa-error::-webkit-scrollbar,
-.qa-card .qa-placeholder::-webkit-scrollbar {
+.qa-card .qa-placeholder::-webkit-scrollbar,
+.qa-card .qa-chat::-webkit-scrollbar {
   width: 6px;
 }
 
 .qa-card .qa-answer::-webkit-scrollbar-track,
 .qa-card .qa-loading::-webkit-scrollbar-track,
 .qa-card .qa-error::-webkit-scrollbar-track,
-.qa-card .qa-placeholder::-webkit-scrollbar-track {
+.qa-card .qa-placeholder::-webkit-scrollbar-track,
+.qa-card .qa-chat::-webkit-scrollbar-track {
   background: rgba(99, 102, 241, 0.05);
   border-radius: 3px;
 }
@@ -492,7 +488,8 @@ async function handleAsk() {
 .qa-card .qa-answer::-webkit-scrollbar-thumb,
 .qa-card .qa-loading::-webkit-scrollbar-thumb,
 .qa-card .qa-error::-webkit-scrollbar-thumb,
-.qa-card .qa-placeholder::-webkit-scrollbar-thumb {
+.qa-card .qa-placeholder::-webkit-scrollbar-thumb,
+.qa-card .qa-chat::-webkit-scrollbar-thumb {
   background: rgba(99, 102, 241, 0.2);
   border-radius: 3px;
 }
@@ -500,7 +497,8 @@ async function handleAsk() {
 .qa-card .qa-answer::-webkit-scrollbar-thumb:hover,
 .qa-card .qa-loading::-webkit-scrollbar-thumb:hover,
 .qa-card .qa-error::-webkit-scrollbar-thumb:hover,
-.qa-card .qa-placeholder::-webkit-scrollbar-thumb:hover {
+.qa-card .qa-placeholder::-webkit-scrollbar-thumb:hover,
+.qa-card .qa-chat::-webkit-scrollbar-thumb:hover {
   background: rgba(99, 102, 241, 0.3);
 }
 
@@ -1332,6 +1330,91 @@ async function handleAsk() {
   color: #6b7280;
   font-size: 12px;
   opacity: 0.8;
+}
+
+/* 对话气泡区域 */
+.qa-chat {
+  padding-top: 12px;
+  padding-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-row {
+  display: flex;
+  width: 100%;
+}
+
+.chat-row-user {
+  justify-content: flex-end;
+}
+
+.chat-row-assistant {
+  justify-content: flex-start;
+}
+
+.chat-bubble {
+  max-width: 80%;
+  border-radius: 16px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap; /* 基本 Markdown 文本换行支持 */
+}
+
+.chat-bubble-user {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-bubble-assistant {
+  background: #f3f4ff;
+  color: #111827;
+  border-bottom-left-radius: 4px;
+  border: 1px solid rgba(129, 140, 248, 0.35);
+}
+
+.chat-content {
+  font-size: 14px;
+}
+
+.chat-sources {
+  margin-top: 8px;
+}
+
+.loading-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+}
+
+.loading-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.loading-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #9ca3af;
+  animation: chatDot 1.2s infinite ease-in-out;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes chatDot {
+  0%, 80%, 100% { transform: scale(0.8); opacity: 0.6; }
+  40% { transform: scale(1.1); opacity: 1; }
 }
 
 @keyframes spin {
