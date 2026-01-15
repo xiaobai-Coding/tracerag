@@ -30,7 +30,7 @@ export function getChatRoundStatus(history: ChatHistory): string {
   }
   
   const roundCount = getChatRoundCount(history);
-  const lastMessage = history[history.length - 1];
+  const lastMessage:any = history[history.length - 1];
   
   // 如果最后一条是用户消息，说明当前轮次还在进行中（助手还没回复）
   if (lastMessage.role === "user") {
@@ -68,7 +68,7 @@ export function getChatStatistics(history: ChatHistory): {
   const roundCount = getChatRoundCount(history);
   const userMessages = history.filter((m) => m.role === "user").length;
   const assistantMessages = history.filter((m) => m.role === "assistant").length;
-  const lastMessage = history[history.length - 1];
+  const lastMessage:any = history[history.length - 1];
   const isCompleteRound = lastMessage.role === "assistant";
   
   return {
