@@ -230,9 +230,51 @@ export async function answerQuestion(
     };
   }
 
-  // 构建提示词（使用预算处理后的上下文）
-  const userChunks = finalTopChunks
-    .map((item) => `#${item.chunkId}: ${item.text}`)
+  // ========= 证据继承：从上一轮助手消息中继承 usedChunks =========
+  let inheritedChunks: Chunk[] = [];
+  if (optimizedHistory && optimizedHistory.length) {
+    const lastAssistant = [...optimizedHistory]
+      .reverse()
+      .find((m) => m.role === "assistant" && Array.isArray(m.usedChunks) && m.usedChunks.length > 0);
+    if (lastAssistant?.usedChunks?.length) {
+      inheritedChunks = lastAssistant.usedChunks;
+    }
+  }
+
+  // 当前轮用于 context 的片段（根据 finalTopChunks 和原始 chunks 映射）
+  const chunkMap = new Map<string, Chunk>();
+  chunks.forEach((c) => chunkMap.set(c.id, c));
+
+  const currentContextChunks: Chunk[] = [];
+  for (const item of finalTopChunks) {
+    const c = chunkMap.get(item.chunkId);
+    if (c) currentContextChunks.push(c);
+  }
+
+  // 合并继承证据与当前检索证据，按 chunk.id 去重
+  const mergedContextChunks: Chunk[] = [];
+  const seenIds = new Set<string>();
+
+  for (const ic of inheritedChunks) {
+    const c = chunkMap.get(ic.id) || ic;
+    if (c && !seenIds.has(c.id)) {
+      mergedContextChunks.push(c);
+      seenIds.add(c.id);
+    }
+  }
+
+  for (const cc of currentContextChunks) {
+    if (!seenIds.has(cc.id)) {
+      mergedContextChunks.push(cc);
+      seenIds.add(cc.id);
+    }
+  }
+
+  const contextChunksForPrompt = mergedContextChunks.length ? mergedContextChunks : currentContextChunks;
+
+  // 构建提示词（使用预算处理后的上下文 + 继承证据）
+  const userChunks = contextChunksForPrompt
+    .map((item) => `#${item.id}: ${item.text}`)
     .join("\n----\n");
 
   const historyText =
@@ -293,13 +335,39 @@ export async function answerQuestion(
       };
     }
 
+    // 根据 sources 数组，提取当前轮真正被引用的片段明细（用于前端 ChatMessage.usedChunks）
+    const citationIdSet = new Set<string>();
+    for (const c of citations) {
+      if (!c) continue;
+      const numCitation = parseInt(c);
+      if (!isNaN(numCitation)) {
+        citationIdSet.add(`chunk-${numCitation}`);
+      } else {
+        citationIdSet.add(c);
+      }
+    }
+
+    const selectedIdSet = new Set(finalTopChunks.map((c) => c.chunkId));
+    const chunkMapForDetail = new Map<string, Chunk>();
+    chunks.forEach((c) => chunkMapForDetail.set(c.id, c));
+
+    const usedChunksDetail: Chunk[] = [];
+    citationIdSet.forEach((id) => {
+      if (!selectedIdSet.has(id)) return;
+      const c = chunkMapForDetail.get(id);
+      if (c) {
+        usedChunksDetail.push(c);
+      }
+    });
+
     return {
       status: 'has_evidence' as EvidenceStatus,
       answer: parsed?.answer ?? "文档中没有找到相关信息",
       used_chunks,
       metrics,
       need_clarify: false,
-      citations
+      citations,
+      used_chunks_detail: usedChunksDetail
     };
   } catch (e) {
     throw new Error("LLM 返回的内容不是合法 JSON");

@@ -1,3 +1,4 @@
+import type { Chunk } from "../utils/chunk";
 export type EvidenceStatus = 'no_evidence' | 'need_clarify' | 'has_evidence';
 
 export interface QAMetrics {
@@ -19,12 +20,16 @@ export interface QAResponse {
   citations?: string[];
   need_clarify?: boolean;
   clarify_options?: string[];
+  // 本轮回答真正使用到的片段明细（用于前端构建 ChatMessage.usedChunks）
+  used_chunks_detail?: Chunk[];
 }
 
 // 多轮对话消息类型
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  // 该轮回答时实际使用到的证据片段（可选，用于证据继承）
+  usedChunks?: Chunk[];
 }
 
 // 对话历史：按时间顺序存储最近若干轮 Q&A
