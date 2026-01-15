@@ -402,13 +402,10 @@ async function handleAsk() {
       content: assistantContent,
     };
 
-    const nextHistory = [...chatHistory.value, userMsg, assistantMsg];
-    const MAX_ROUNDS = 5; // 最多保留 5 轮（10 条消息）
-    if (nextHistory.length > MAX_ROUNDS * 2) {
-      chatHistory.value = nextHistory.slice(nextHistory.length - MAX_ROUNDS * 2);
-    } else {
-      chatHistory.value = nextHistory;
-    }
+    // 将当前轮对话写入历史
+    // 注意：不再限制历史长度，由后端的 summarizeHistory 函数自动管理 Token
+    // 前端保持完整历史记录，以便用户查看完整对话过程
+    chatHistory.value = [...chatHistory.value, userMsg, assistantMsg];
   } catch (e: any) {
     error.value = e?.message || "提问失败，请重试";
   } finally {

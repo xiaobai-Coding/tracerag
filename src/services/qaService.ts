@@ -13,6 +13,8 @@ import type {
 import type { Chunk } from "../utils/chunk";
 import { getStandaloneQuery } from "../utils/queryRewriter";
 import { getChatStatistics } from "../utils/chatHistory";
+import { summarizeHistory } from "../utils/historyManager";
+import { countTokens } from "../utils/tokenCounter";
 
 const chunkEmbeddingCache = new Map<string, number[]>();
 
@@ -36,8 +38,17 @@ export async function answerQuestion(
   // const chatStats = getChatStatistics(history);
   // console.log("[RAG] 对话轮次统计:", chatStats);
   
-  // 0. 先进行查询重写，得到独立检索词
-  const standaloneQuery = await getStandaloneQuery(history, question);
+  // 0. 历史摘要优化：当历史记录超过最大token阀值时，压缩旧消息为背景摘要
+  const optimizedHistory = await summarizeHistory(history);
+  console.log(
+    `[RAG] 历史优化：原始 ${history.length} 条 → 优化后 ${optimizedHistory.length} 条`
+  );
+  console.log(
+    `[RAG] Token 预估：原始 ${countTokens(history)} | 优化后 ${countTokens(optimizedHistory)}`
+  );
+  
+  // 1. 使用优化后的历史进行查询重写，得到独立检索词
+  const standaloneQuery = await getStandaloneQuery(optimizedHistory, question);
   console.log(
     "[RAG] standalone query===>>>:",
     standaloneQuery,
@@ -48,8 +59,8 @@ export async function answerQuestion(
   // 如果是闲聊/不需要检索，直接走普通对话，不做向量检索
   if (standaloneQuery === "NO_SEARCH_NEEDED") {
     const historyText =
-      history && history.length
-        ? history
+      optimizedHistory && optimizedHistory.length
+        ? optimizedHistory
             .map((m, idx) => {
               const prefix = m.role === "user" ? "user" : "assistant";
               return `${idx + 1}. ${prefix}：${m.content}`;
@@ -225,8 +236,8 @@ export async function answerQuestion(
     .join("\n----\n");
 
   const historyText =
-    history && history.length
-      ? history
+    optimizedHistory && optimizedHistory.length
+      ? optimizedHistory
           .map((m, idx) => {
             const prefix = m.role === "user" ? "user" : "assistant";
             return `${idx + 1}. ${prefix}：${m.content}`;

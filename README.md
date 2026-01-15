@@ -286,13 +286,13 @@ vercel --prod
 export async function answerQuestion(question: string, chunks: Chunk[]) {
   // 1. 向量化用户问题
   const queryVector = await embedQuery(question);
-
+  
   // 2. 向量化文档片段（带缓存）
   const chunkVectors = await embedChunks(chunks);
-
+  
   // 3. MMR 检索最相关的 Top-K 片段
   const topResults = mmrSelect(queryVector, chunkVectors, 3);
-
+  
   // 4. 构建提示词，包含检索到的片段
   const userChunks = topResults
     .map((item) => `#${chunks[item.index].index}: ${chunks[item.index].text}`)
@@ -302,10 +302,10 @@ export async function answerQuestion(question: string, chunks: Chunk[]) {
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: `用户问题：${question}\n\n相关文档片段：\n${userChunks}` }
   ];
-
+  
   // 5. 调用 AI 生成回答
   const res = await streamDeepSeekAPI(messages, false);
-
+  
   // 6. 解析 JSON 并验证引用完整性
   const parsed = JSON.parse(res);
   const citations = parsed.sources || [];
@@ -344,16 +344,16 @@ export default async function handler(req: Request) {
   try {
     const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings', {
       method: 'POST',
-      headers: {
+    headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.DASHSCOPE_API_KEY}`
-      },
-      body: JSON.stringify({
+    },
+    body: JSON.stringify({
         model: 'text-embedding-v4',
         input
-      })
-    });
-
+    })
+  });
+  
     const data = await response.json();
     return new Response(JSON.stringify(data), {
       headers: { 'Content-Type': 'application/json' }
@@ -398,7 +398,7 @@ export function selectRetrievalChunks(
       score: result.mmrScore
     }));
     return { strategyUsed: "mmr", selectedChunks, scores: mmrResults.map(r => r.mmrScore) };
-  }
+}
 }
 
 // src/components/QASection.vue - UI组件
@@ -490,14 +490,14 @@ function scrollToChunks(ids: string[]) {
   });
 
   if (validIds.length === 0) return;
-
+  
   // 设置高亮数组（所有引用ID）
   highlightChunks.value = validIds;
-
+  
   // 滚动到第一个引用的位置
   const firstId = validIds[0];
   textViewerRef.value?.scrollToChunk(firstId);
-
+  
   // 3 秒后自动取消高亮
   setTimeout(() => {
     highlightChunks.value = [];
@@ -518,9 +518,9 @@ export interface Chunk {
 }
 
 export function splitIntoChunksWithOverlap(
-    text: string,
-    chunkSize: number = 400,
-    overlapSize: number = 80
+  text: string,
+  chunkSize: number = 400,
+  overlapSize: number = 80
   ): Chunk[] {
     const result: Chunk[] = [];
     const cleaned = text.trim().replace(/\s+/g, " ");
@@ -543,7 +543,7 @@ export function splitIntoChunksWithOverlap(
         chunkIndex++;
       }
 
-      start += chunkSize - overlapSize; // 保留重叠
+  start += chunkSize - overlapSize; // 保留重叠
     }
 
     return result;

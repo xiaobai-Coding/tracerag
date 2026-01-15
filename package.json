@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "gpt-tokenizer": "^2.9.0",
     "mammoth": "^1.11.0",
     "openai": "^6.10.0",
     "pdfjs-dist": "^3.11.174",
