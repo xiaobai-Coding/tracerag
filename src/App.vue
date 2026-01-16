@@ -272,9 +272,7 @@ async function generateSummary() {
   summaryLoading.value = true;
   summaryError.value = "";
 
-  const userMessage = `请基于以下文档片段生成摘要和关键点，严格输出 JSON：
-片段数量：${chunks.value.length}
-------------
+  const userMessage = `
 ${chunks.value.map((c) => `#${c.index}: ${c.text}`).join("\n------------\n")}
 `;
 

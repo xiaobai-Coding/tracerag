@@ -271,6 +271,7 @@ export async function answerQuestion(
   }
 
   const contextChunksForPrompt = mergedContextChunks.length ? mergedContextChunks : currentContextChunks;
+  const contextIdsSet = new Set(contextChunksForPrompt.map(c => c.id));
 
   // 构建提示词（使用预算处理后的上下文 + 继承证据）
   const userChunks = contextChunksForPrompt
@@ -309,23 +310,19 @@ export async function answerQuestion(
 
     // 检查引用完整性：确保所有citations都包含在used_chunks中
     const citations = Array.isArray(parsed?.sources) ? parsed.sources : [];
-    const usedChunkIds = new Set(used_chunks.map(chunk => chunk.chunk_id));
+    const allowedIds = new Set(contextIdsSet);
 
     // 检查是否有任何citation不在used_chunks中
     const invalidCitations = citations.filter((citation: string) => {
-      // citation可能是数字字符串或chunk-id格式，需要统一处理
       const numCitation = parseInt(citation);
       if (!isNaN(numCitation)) {
-        // 如果是数字，转换为chunk-id格式
-        return !usedChunkIds.has(`chunk-${numCitation}`);
+        return !allowedIds.has(`chunk-${numCitation}`);
       }
-      // 如果已经是chunk-id格式，直接检查
-      return !usedChunkIds.has(citation);
+      return !allowedIds.has(citation);
     });
 
     // 如果有无效引用，返回no_evidence
     if (invalidCitations.length > 0) {
-      console.log(`[Citation Integrity] Invalid citations found: ${invalidCitations.join(', ')}, used chunks: ${Array.from(usedChunkIds).join(', ')}`);
       return {
         status: 'no_evidence' as EvidenceStatus,
         answer: null,
@@ -347,7 +344,7 @@ export async function answerQuestion(
       }
     }
 
-    const selectedIdSet = new Set(finalTopChunks.map((c) => c.chunkId));
+    const selectedIdSet = new Set(contextIdsSet);
     const chunkMapForDetail = new Map<string, Chunk>();
     chunks.forEach((c) => chunkMapForDetail.set(c.id, c));
 
