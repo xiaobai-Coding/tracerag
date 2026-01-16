@@ -55,7 +55,7 @@
                   </ul>
                   <p class="evidence-text">建议操作：</p>
                   <ul class="clarify-options">
-                    <li class="clarify-option" v-for="s in deriveNoEvidenceSuggestions(msg)" :key="s">{{ s }}</li>
+                    <li class="clarify-option" v-for="s in deriveNoEvidenceSuggestions()" :key="s">{{ s }}</li>
                   </ul>
                   <div class="evidence-metrics">
                     <span class="metrics-label">top1:</span>
@@ -283,7 +283,7 @@ function deriveNoEvidenceReasons(msg: UIBubble): string[] {
   return rs;
 }
 
-function deriveNoEvidenceSuggestions(msg: UIBubble): string[] {
+function deriveNoEvidenceSuggestions(): string[] {
   const ss: string[] = [];
   ss.push("重述问题并加入更具体的关键词");
   ss.push("引用具体章节或段落编号，例如 [[1]] 或 [[chunk-2]]");
