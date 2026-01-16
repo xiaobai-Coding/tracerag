@@ -293,9 +293,9 @@ export async function answerQuestion(
     {
       role: "user",
       content:
-        `[对话历史]（Chat History）这是你和用户之前的对话背景，仅供参考指代关系，不可作为事实来源：\n${historyText}\n\n` +
-        `[当前问题]（Current Query）这是用户最新的问题，你必须按照这个问题回答：\n${question}\n\n` +
-        `[当前证据]（Current Evidence）（按相关度排序，# 为片段编号）这是从文档中检索到的最新事实，你必须优先基于此内容回答：\n${userChunks}\n\n` +
+        `###[对话历史]（Chat History）这是你和用户之前的对话背景，仅供参考指代关系，不可作为事实来源：\n${historyText}\n\n` +
+        `###[当前问题]（Current Query）这是用户最新的问题，你必须按照这个问题回答：\n${question}\n\n` +
+        `###[当前证据]（Current Evidence）（按相关度排序，# 为片段编号）这是从文档中检索到的最新事实，你必须优先基于此内容回答：\n${userChunks}\n\n` +
         "请结合上述对话历史和当前证据，用中文按指定 JSON 格式回答，其中 sources 字段只能引用上文出现的片段编号。",
     },
   ];

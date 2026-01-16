@@ -24,37 +24,7 @@
       <span class="count" v-if="chunks?.length">片段 {{ chunks.length }} 个</span>
     </div>
 
-    <div class="qa-input">
-      <div class="textarea-wrapper">
-        <textarea
-          v-model="question"
-          class="qa-textarea"
-          rows="3"
-          placeholder="向文档提问，如：这份文档的主要结论是什么？"
-          :disabled="loading"
-          @keydown="handleKeyDown"
-        ></textarea>
-        <div class="textarea-overlay" v-if="loading">
-          <div class="loading-indicator">
-            <div class="loading-spinner"></div>
-            <span class="loading-text">AI 正在思考中...</span>
-          </div>
-        </div>
-      </div>
-      <div class="qa-actions">
-        <button class="ask-btn" :disabled="loading || !question.trim()" @click="handleAsk">
-          <span v-if="loading" class="btn-spinner"></span>
-          <span v-else class="btn-text">
-            <span class="btn-icon">💬</span>
-            问文档
-          </span>
-        </button>
-        <span class="qa-hint">
-          <span class="hint-icon">⌨️</span>
-          <span>Enter 发送 · Shift+Enter 换行 · 引用格式 [[1]] 或 [[1,3]]</span>
-        </span>
-      </div>
-    </div>
+    
 
     <!-- 对话气泡列表 -->
     <div class="qa-chat" ref="chatContainer">
@@ -68,25 +38,74 @@
           class="chat-bubble"
           :class="msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-assistant'"
         >
-          <div class="chat-content">
-            <span
-              v-for="(seg, j) in parseWithRefs(msg.content)"
-              :key="`m-${idx}-${j}`"
-            >
-              <template v-if="seg.type === 'text'">
-                {{ seg.text }}
-              </template>
-              <span v-else class="ref-group">
-                <a
-                  href="#"
-                  class="ref-link"
-                  @click.prevent="handleRefClick(seg.ids)"
-                >[[{{ seg.ids.join(',') }}]]</a>
+          <div class="chat-content" :class="{ collapsed: msg.role === 'assistant' && isCollapsed(idx, msg) }">
+            <template v-if="msg.role === 'assistant' && msg.status === 'no_evidence'">
+              <div class="qa-no-evidence">
+                <div class="evidence-header">
+                  <div class="evidence-icon">🧪</div>
+                  <div>
+                    <div class="evidence-title">证据不足</div>
+                    <div class="evidence-subtitle">未找到足够相关的文档片段</div>
+                  </div>
+                </div>
+                <div class="evidence-content">
+                  <p class="evidence-text">可能原因：</p>
+                  <ul class="clarify-options">
+                    <li class="clarify-option" v-for="r in deriveNoEvidenceReasons(msg)" :key="r">{{ r }}</li>
+                  </ul>
+                  <p class="evidence-text">建议操作：</p>
+                  <ul class="clarify-options">
+                    <li class="clarify-option" v-for="s in deriveNoEvidenceSuggestions(msg)" :key="s">{{ s }}</li>
+                  </ul>
+                  <div class="evidence-metrics">
+                    <span class="metrics-label">top1:</span>
+                    <span class="metrics-value">{{ msg.metrics?.top1_score ?? '-' }}</span>
+                    <span class="metrics-label" style="margin-left:8px;">strategy:</span>
+                    <span class="metrics-value">{{ msg.metrics?.strategy ?? 'auto' }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template v-else-if="msg.role === 'assistant' && msg.status === 'need_clarify'">
+              <div class="qa-need-clarify">
+                <div class="clarify-header">
+                  <div class="clarify-icon">🧭</div>
+                  <div>
+                    <div class="clarify-title">需要澄清</div>
+                    <div class="clarify-subtitle">选择或补充以下信息</div>
+                  </div>
+                </div>
+                <div class="clarify-content">
+                  <p class="clarify-text">可选项：</p>
+                  <ul class="clarify-options">
+                    <li class="clarify-option" v-for="opt in (msg.clarifyOptions || [])" :key="opt">{{ opt }}</li>
+                  </ul>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <span
+                v-for="(seg, j) in parseWithRefs(msg.content)"
+                :key="`m-${idx}-${j}`"
+              >
+                <template v-if="seg.type === 'text'">
+                  {{ seg.text }}
+                </template>
+                <span v-else class="ref-group">
+                  <a
+                    href="#"
+                    class="ref-link"
+                    @click.prevent="handleRefClick(seg.ids)"
+                  >[[{{ seg.ids.join(',') }}]]</a>
+                </span>
               </span>
-            </span>
+            </template>
+          </div>
+          <div v-if="msg.role === 'assistant' && isLong(msg.content)" class="collapse-actions">
+            <button class="collapse-btn" @click="toggleCollapse(idx)">{{ isCollapsed(idx, msg) ? '展开' : '收起' }}</button>
           </div>
           <div
-            v-if="msg.citations && msg.citations.length"
+            v-if="msg.citations && msg.citations.length && !isCollapsed(idx, msg) && msg.status !== 'no_evidence' && msg.status !== 'need_clarify'"
             class="chat-sources"
           >
             <span class="source-label">
@@ -132,11 +151,40 @@
         </div>
       </div>
     </div>
+    
+    <div class="qa-input">
+      <div class="textarea-wrapper">
+        <textarea
+          v-model="question"
+          class="qa-textarea"
+          rows="1"
+          placeholder="向文档提问，如：这份文档的主要结论是什么？"
+          :disabled="loading"
+          @keydown="handleKeyDown"
+          @input="autoResize"
+          ref="textareaRef"
+        ></textarea>
+        <button
+          :class="['input-send-btn', { loading }]"
+          :disabled="loading || !question.trim()"
+          @click="handleAsk"
+        >
+          <span v-if="loading" class="btn-spinner"></span>
+          <span class="btn-text">{{ loading ? '生成中…' : '问文档' }}</span>
+        </button>
+      </div>
+      <div class="qa-actions">
+        <span class="qa-hint">
+          <span class="hint-icon">⌨️</span>
+          <span>Enter 发送 · Shift+Enter 换行 · 引用格式 [[1]] 或 [[1,3]]</span>
+        </span>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import type { Chunk } from "../utils/chunk";
 import { answerQuestion } from "../services/qaService";
 import type { ChatMessage, QAResponse } from "../types/qa";
@@ -162,14 +210,87 @@ type UIBubble = {
   role: "user" | "assistant";
   content: string;
   citations?: string[];
+  status?: "no_evidence" | "need_clarify" | "has_evidence";
+  metrics?: {
+    top1_score: number;
+    strategy: "topk" | "mmr";
+    k: number;
+    low: number;
+    high: number;
+    context_chars: number;
+    context_chunks: number;
+  };
+  clarifyOptions?: string[];
 };
 const messages = ref<UIBubble[]>([]);
 const chatContainer = ref<HTMLElement | null>(null);
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
 type Segment =
   | { type: "text"; text: string }
   | { type: "ref"; ids: string[] };
 
+const collapsedStates = ref<Record<number, boolean>>({});
+
+function isLong(content: string): boolean {
+  const lines = content.split(/\r?\n/);
+  if (lines.length > 6) return true;
+  return content.length > 600;
+}
+
+function isCollapsed(idx: number, msg: UIBubble): boolean {
+  const state = collapsedStates.value[idx];
+  if (state === undefined) {
+    return msg.role === "assistant" && isLong(msg.content);
+  }
+  return state;
+}
+
+function toggleCollapse(idx: number) {
+  collapsedStates.value[idx] = !isCollapsed(idx, messages.value[idx] as UIBubble);
+}
+
+function autoResize(e: Event) {
+  const el = e.target as HTMLTextAreaElement;
+  if (!el) return;
+  el.style.height = 'auto';
+  const max = 150;
+  const newH = Math.min(max, el.scrollHeight);
+  el.style.height = `${newH}px`;
+  el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
+}
+
+watch(question, async () => {
+  await nextTick();
+  const el = textareaRef.value;
+  if (el) {
+    el.style.height = 'auto';
+    const max = 150;
+    const newH = Math.min(max, el.scrollHeight);
+    el.style.height = `${newH}px`;
+    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
+  }
+});
+
+function deriveNoEvidenceReasons(msg: UIBubble): string[] {
+  const rs: string[] = [];
+  const s = msg.metrics?.top1_score ?? 0;
+  const ck = msg.metrics?.context_chunks ?? 0;
+  if (ck === 0) rs.push("未检索到相关片段或片段数量过少");
+  if (s < 0.35) rs.push("最高相似度较低，相关性不足");
+  if (msg.citations && msg.citations.length === 0) rs.push("回答未引用任何文档证据");
+  if (rs.length === 0) rs.push("当前问题与文档内容关联不强");
+  return rs;
+}
+
+function deriveNoEvidenceSuggestions(msg: UIBubble): string[] {
+  const ss: string[] = [];
+  ss.push("重述问题并加入更具体的关键词");
+  ss.push("引用具体章节或段落编号，例如 [[1]] 或 [[chunk-2]]");
+  ss.push("切换检索策略为 TopK 或 MMR");
+  ss.push("将问题拆分为更小的子问题逐步求解");
+  return ss;
+}
 /**
  * 解析文本中的引用标记，支持 [[1,4]]、[[2,5,6]] 等多引用格式
  * 返回 Segment 数组，每个 ref 类型的 segment 包含所有引用编号
@@ -393,7 +514,11 @@ async function handleAsk() {
       role: "assistant",
       content: assistantContent,
       citations: assistantCitations,
+      status: res.status,
+      metrics: res.metrics,
+      clarifyOptions: res.clarify_options,
     });
+    collapsedStates.value[messages.value.length - 1] = isLong(assistantContent);
 
     await nextTick();
     if (chatContainer.value) {
@@ -465,6 +590,7 @@ async function handleAsk() {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  padding-bottom: 80px;
 }
 
 /* QA 卡片滚动条样式 */
@@ -507,8 +633,23 @@ async function handleAsk() {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  position: relative;
-  z-index: 1;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.qa-input::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  left: 0;
+  right: 0;
+  height: 12px;
+  background: linear-gradient(to bottom, rgba(255,255,255,0), var(--bg-card));
 }
 
 .textarea-wrapper {
@@ -517,26 +658,33 @@ async function handleAsk() {
 
 .qa-textarea {
   width: 100%;
-  border-radius: 16px;
-  border: 1px solid rgba(99, 102, 241, 0.12);
-  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--primary);
+  padding: 12px 84px 12px 16px;
   font-size: 14px;
   font-family: "Inter", "PingFang SC", system-ui, -apple-system, sans-serif;
-  resize: vertical;
-  min-height: 100px;
+  resize: none;
+  min-height: 60px;
+  max-height: 150px;
   outline: none;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(250, 251, 255, 0.95));
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.06);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
+  overflow-y: hidden;
+}
+
+.qa-textarea::placeholder {
+  color: #6b7280;
+  text-align: center;
 }
 
 .qa-textarea:focus {
-  border-color: rgba(99, 102, 241, 0.25);
-  box-shadow: 
-    0 4px 16px rgba(79, 70, 229, 0.12),
-    0 0 0 3px rgba(99, 102, 241, 0.08);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 1), rgba(250, 251, 255, 0.98));
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  background: #ffffff;
 }
+
 
 .qa-textarea:disabled {
   opacity: 0.7;
@@ -583,7 +731,7 @@ async function handleAsk() {
 .qa-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -818,6 +966,67 @@ async function handleAsk() {
   font-size: 12px;
 }
 
+.input-send-btn {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 9999px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-send-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.input-send-btn:not(:disabled):hover {
+  background: #7c3aed;
+}
+
+.input-send-btn.loading {
+  background: linear-gradient(90deg, #6366f1 0%, #7c3aed 50%, #6366f1 100%);
+  background-size: 200% 100%;
+  animation: buttonShimmer 1.2s linear infinite;
+}
+
+.input-send-btn .btn-text {
+  font-weight: 700;
+}
+
+@keyframes buttonShimmer {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.textarea-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(99,102,241,0.2), rgba(99,102,241,0.6), rgba(99,102,241,0.2));
+  background-size: 200% 100%;
+  animation: loadingBar 1.2s linear infinite;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+@keyframes loadingBar {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
 /* Loading 状态 */
 .qa-loading {
   margin-top: 0;
@@ -875,14 +1084,14 @@ async function handleAsk() {
 
 /* 证据不足状态 */
 .qa-no-evidence {
-  margin-top: 0;
-  background: linear-gradient(135deg, rgba(254, 226, 226, 0.95), rgba(254, 215, 215, 0.9));
-  border: 1px solid rgba(220, 38, 38, 0.15);
-  border-radius: 16px;
-  box-shadow: 0 12px 40px rgba(220, 38, 38, 0.08);
+  margin-top: 4px;
+  background: rgba(254, 226, 226, 0.6);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: 10px;
+  box-shadow: none;
   position: relative;
   overflow: hidden;
-  animation: evidenceSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: evidenceSlideIn 0.2s ease-out;
 }
 
 @keyframes evidenceSlideIn {
@@ -899,59 +1108,54 @@ async function handleAsk() {
 .evidence-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 20px 20px 0 20px;
+  gap: 8px;
+  padding: 10px 12px 0 12px;
 }
 
 .evidence-icon {
-  font-size: 24px;
-  filter: drop-shadow(0 2px 4px rgba(220, 38, 38, 0.3));
+  font-size: 18px;
 }
 
 .evidence-title {
-  font-weight: 800;
-  font-size: 18px;
-  color: #dc2626;
-  background: linear-gradient(135deg, #dc2626, #b91c1c);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+  font-size: 14px;
+  color: #b91c1c;
 }
 
 .evidence-subtitle {
-  font-size: 12px;
+  font-size: 11px;
   color: #991b1b;
-  margin-top: 2px;
+  margin-top: 0;
   opacity: 0.8;
 }
 
 .evidence-content {
-  padding: 16px 20px 20px 20px;
+  padding: 10px 12px 12px 12px;
 }
 
 .evidence-text {
-  margin: 0 0 12px;
-  line-height: 1.6;
+  margin: 0 0 8px;
+  line-height: 1.5;
   color: #7f1d1d;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .evidence-metrics {
-  font-size: 12px;
+  font-size: 11px;
   color: #991b1b;
   opacity: 0.7;
 }
 
 /* 需要澄清状态 */
 .qa-need-clarify {
-  margin-top: 0;
-  background: linear-gradient(135deg, rgba(255, 237, 213, 0.95), rgba(254, 215, 170, 0.9));
-  border: 1px solid rgba(245, 158, 11, 0.15);
-  border-radius: 16px;
-  box-shadow: 0 12px 40px rgba(245, 158, 11, 0.08);
+  margin-top: 4px;
+  background: rgba(255, 237, 213, 0.6);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 10px;
+  box-shadow: none;
   position: relative;
   overflow: hidden;
-  animation: clarifySlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: clarifySlideIn 0.2s ease-out;
 }
 
 @keyframes clarifySlideIn {
@@ -968,53 +1172,48 @@ async function handleAsk() {
 .clarify-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 20px 20px 0 20px;
+  gap: 8px;
+  padding: 10px 12px 0 12px;
 }
 
 .clarify-icon {
-  font-size: 24px;
-  filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3));
+  font-size: 18px;
 }
 
 .clarify-title {
-  font-weight: 800;
-  font-size: 18px;
-  color: #d97706;
-  background: linear-gradient(135deg, #d97706, #b45309);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+  font-size: 14px;
+  color: #b45309;
 }
 
 .clarify-subtitle {
-  font-size: 12px;
+  font-size: 11px;
   color: #92400e;
-  margin-top: 2px;
+  margin-top: 0;
   opacity: 0.8;
 }
 
 .clarify-content {
-  padding: 16px 20px 20px 20px;
+  padding: 10px 12px 12px 12px;
 }
 
 .clarify-text {
-  margin: 0 0 12px;
-  line-height: 1.6;
+  margin: 0 0 8px;
+  line-height: 1.5;
   color: #9a3412;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .clarify-options {
-  margin: 0 0 12px;
+  margin: 0 0 8px;
   padding-left: 16px;
 }
 
 .clarify-option {
   color: #9a3412;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
   opacity: 0.85;
 }
 
@@ -1147,8 +1346,8 @@ async function handleAsk() {
   color: #6366f1;
   text-decoration: none;
   margin: 0 2px;
-  padding: 4px 8px;
-  border-radius: 8px;
+  padding: 4px 12px;
+  border-radius: 9999px;
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.12));
   border: 1px solid rgba(99, 102, 241, 0.3);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1356,7 +1555,7 @@ async function handleAsk() {
 
 .chat-bubble {
   max-width: 80%;
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 10px 12px;
   font-size: 14px;
   line-height: 1.6;
@@ -1365,20 +1564,48 @@ async function handleAsk() {
 }
 
 .chat-bubble-user {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: #fff;
-  border-bottom-right-radius: 4px;
+  background: var(--primary);
+  color: #ffffff;
+  border-radius: 8px;
 }
 
 .chat-bubble-assistant {
-  background: #f3f4ff;
+  background: var(--primary-weak);
   color: #111827;
-  border-bottom-left-radius: 4px;
-  border: 1px solid rgba(129, 140, 248, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .chat-content {
   font-size: 14px;
+}
+
+.chat-content.collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.collapse-actions {
+  margin-top: 6px;
+}
+
+.collapse-btn {
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.08));
+  color: #6366f1;
+  border-radius: 9999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.collapse-btn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(139, 92, 246, 0.12));
+  border-color: rgba(99, 102, 241, 0.45);
 }
 
 .chat-sources {
@@ -1430,4 +1657,3 @@ async function handleAsk() {
   }
 }
 </style>
-

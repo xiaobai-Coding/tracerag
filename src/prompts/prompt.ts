@@ -112,7 +112,7 @@ export const PARSE_SYSTEM_PROMPT = `
 - 引用中的ID必须对应用户消息中出现过的片段ID
 - 一个句子可以引用多个片段，用逗号分隔，如 [[chunk-1,chunk-4,chunk-5]]
 - 若无法确定引用来源，请不要生成该句
-【输出 JSON 格式，不要有任何解释文字，不包含任何其他文字，只包含 JSON 格式】
+【输出 JSON 格式，不要有任何解释文字，不包含任何其他文字，只包含合法的 JSON 格式，必须能够被 JSON.parse 解析】
 {
   "summary": "string（可以包含多句，每句附带 [[#编号]] 引用）",
   "key_points": [
