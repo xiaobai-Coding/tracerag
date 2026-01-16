@@ -20,6 +20,12 @@
 
 ## ✨ 功能特性
 
+### 多轮对话与上下文管理
+- ✅ 多轮 QA：保留完整对话历史，保证回答与上下文一致
+- ✅ 查询重写：将当前问题改写为独立检索词，消除代词指代与歧义；闲聊自动跳过检索
+- ✅ 历史摘要（Map-Reduce）：当历史超过阈值时压缩旧消息为背景摘要，保留最近对话，控制 Token 并提升关联性
+- ✅ 引用继承：上一轮回答中有效证据片段自动继承到本轮，与当前检索片段合并去重，提升回答稳定性与一致性
+
 ### 文档解析
 - ✅ 支持多页 PDF 文档，自动添加页码标记
 - ✅ 支持复杂格式的 Word 文档，检测分页符
@@ -247,6 +253,16 @@ vercel --prod
 - `AI_API_KEY`: DeepSeek API 密钥
 - `AI_API_BASE_URL`: https://api.deepseek.com
 
+### 运行时配置补充（SSE 与安全）
+
+在 Vercel 项目设置中再补充以下变量：
+
+- `CLIENT_TOKEN`: 与前端请求头 `x-client-token` 一致，默认建议 `tracerag-web`
+
+说明：
+- `/api/ai` 会校验 `x-client-token` 与 `CLIENT_TOKEN`，并将请求透传到上游 DeepSeek
+- 已启用上游 `stream: true` 并将 `text/event-stream` 直传到前端
+
 ## 📖 使用说明
 
 ### 使用流程
@@ -277,335 +293,78 @@ vercel --prod
    - 自动滚动到文档内容卡片中对应的片段位置
    - 目标片段会高亮显示（Flash 动画 + 3 秒高亮）
 
+### 问答流式输出（打字机）
+- 真流式：后端 `/api/ai` 以 SSE 直传上游的 `data: ...\n\n` 帧，前端逐帧渲染
+- 回退流：若上游未返回可读流，前端会对最终 JSON 的 `answer` 字段进行逐字模拟输出
+- 增量滚动：每次追加后自动滚动到底部，结束后进行折叠判断与引用渲染
+
 ## 🔧 核心实现
 
 ### RAG QA 流程
+本系统基于“检索→构建上下文→生成与验证”的流程实现文档问答，包含检索策略选择、引用完整性校验与证据态管理。
 
-```typescript
-// src/services/qaService.ts
-export async function answerQuestion(question: string, chunks: Chunk[]) {
-  // 1. 向量化用户问题
-  const queryVector = await embedQuery(question);
-  
-  // 2. 向量化文档片段（带缓存）
-  const chunkVectors = await embedChunks(chunks);
-  
-  // 3. MMR 检索最相关的 Top-K 片段
-  const topResults = mmrSelect(queryVector, chunkVectors, 3);
-  
-  // 4. 构建提示词，包含检索到的片段
-  const userChunks = topResults
-    .map((item) => `#${chunks[item.index].index}: ${chunks[item.index].text}`)
-    .join("\n----\n");
+### SSE 直传代理
 
-  const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: `用户问题：${question}\n\n相关文档片段：\n${userChunks}` }
-  ];
-  
-  // 5. 调用 AI 生成回答
-  const res = await streamDeepSeekAPI(messages, false);
-  
-  // 6. 解析 JSON 并验证引用完整性
-  const parsed = JSON.parse(res);
-  const citations = parsed.sources || [];
+- 后端接口：`/api/ai` 设置 `stream: true`，并将上游 DeepSeek 的 SSE 帧透传到前端
+- 响应头：`Content-Type: text/event-stream`、`Connection: keep-alive`、`Cache-Control: no-cache`
+- 结束帧：末尾补充 `data: [DONE]\n\n`
+- 位置：`api/ai.ts`
 
-  // 引用完整性检查：确保所有citations都在used_chunks中
-  const usedChunkIds = new Set(topResults.map(r => chunks[r.index].id));
-  const invalidCitations = citations.filter((citation: string) => {
-    const numCitation = parseInt(citation);
-    return numCitation ?
-      !usedChunkIds.has(`chunk-${numCitation}`) :
-      !usedChunkIds.has(citation);
-  });
+### RAG 过程日志（JSON）
 
-  // 如果有无效引用，返回no_evidence
-  if (invalidCitations.length > 0) {
-    return { status: 'no_evidence', answer: null, used_chunks: [], metrics };
-  }
+- 后端接口：`/api/log`，将 JSON 逐行写入项目根目录 `rag_process.log`
+- 字段示例：
+  - `strategy`: 实际策略（`topk` 或 `mmr`）
+  - `top1_score`: 最匹配片段相似度
+  - `used_chunks`: 进入 Context 的片段数量
+  - `truncated_chunks`: 因预算被舍弃的片段数量
+  - `hasInjectionRisk`: 是否命中注入关键字（如 “ignore previous instructions”）
+  - `latency`: 毫秒耗时
+  - `error_code`: 0 成功，非 0 为错误码（如 1001 引用不一致，1002 JSON 解析失败）
+- 注意：在 serverless 环境中文件系统可能不持久，生产建议改用外部日志服务
 
-  return { answer: parsed.answer, sources: citations };
-}
-```
+### 证据三态与折叠逻辑
+
+- 证据三态：
+  - `has_evidence`：正常回答并显示引用胶囊
+  - `need_clarify`：显示澄清选项，引导用户补充信息
+  - `no_evidence`：明确不足原因并给出操作建议，隐藏引用胶囊
+- 折叠逻辑：
+  - 对助手气泡进行长度判定（>6 行或 >600 字符）默认折叠
+  - 点击“展开/收起”切换，仅在 `has_evidence` 时显示引用区块
+
+### UI 体验优化
+
+- 输入框强调：白底+主色边框、右侧嵌入按钮、自动增高与滚动
+- 加载态优化：按钮内置 spinner，并在加载时启用渐变闪动背景
+- 毛玻璃效果：底部输入容器启用 `backdrop-filter` 提升通透感
+- 初始占位：原生 `placeholder` 居中，兼容中文输入法组合态
 
 ### 向量化（DashScope Embedding）
-
-```typescript
-// api/embedding.ts - Serverless Function
-import { embed } from 'ai';
-
-export default async function handler(req: Request) {
-  if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
-  }
-
-  const { input } = await req.json();
-
-  try {
-    const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings', {
-      method: 'POST',
-    headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.DASHSCOPE_API_KEY}`
-    },
-    body: JSON.stringify({
-        model: 'text-embedding-v4',
-        input
-    })
-  });
-  
-    const data = await response.json();
-    return new Response(JSON.stringify(data), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: 'Embedding failed' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-```
+采用服务端向量化与缓存策略，减少重复计算并提升整体检索性能。
 
 ### 智能检索策略切换
-
-```typescript
-// src/utils/similarity.ts - 核心检索逻辑
-export function selectRetrievalChunks(
-  query: string,
-  queryVector: number[],
-  chunks: Chunk[],
-  chunkVectors: number[][],
-  topK: number = 3,
-  strategy: "auto" | "topk" | "mmr" = "auto",
-  lambda: number = 0.7
-): RetrievalResult {
-  // 自动策略选择：问题长度 < 50字 用 TopK，否则用 MMR
-  const strategyUsed = strategy === "auto"
-    ? (query.length < 50 ? "topk" : "mmr")
-    : strategy;
-
-  if (strategyUsed === "topk") {
-    // TopK 策略：直接按相似度排序
-    const results = searchRelevantChunks(queryVector, chunkVectors, chunks, topK);
-    return { strategyUsed: "topk", selectedChunks: results, scores: results.map(r => r.score) };
-  } else {
-    // MMR 策略：最大边际相关性检索
-    const mmrResults = mmrSelect(queryVector, chunkVectors, topK, lambda);
-    const selectedChunks = mmrResults.map(result => ({
-      index: result.index,
-      text: chunks[result.index].text,
-      score: result.mmrScore
-    }));
-    return { strategyUsed: "mmr", selectedChunks, scores: mmrResults.map(r => r.mmrScore) };
-}
-}
-
-// src/components/QASection.vue - UI组件
-<div class="strategy-selector-header">
-  <div class="strategy-dropdown" @click="toggleStrategyMenu">
-    <span class="strategy-text">{{ currentStrategyText }}</span>
-    <div class="strategy-arrow">▼</div>
-  </div>
-  <div class="strategy-indicator" :class="currentStrategyClass"></div>
-  <div v-if="showStrategyMenu" class="strategy-menu">
-    <div class="strategy-option" v-for="option in strategyOptions" :key="option.value" @click="selectStrategy(option.value)">
-      {{ option.label }}
-    </div>
-  </div>
-</div>
-```
+提供 TopK 与 MMR 两种检索策略，自动与手动可切换，保证相关性与多样性的平衡。
 
 ### MMR 检索算法
-
-```typescript
-// src/utils/mmr.ts
-export function mmrSelect(
-  queryEmbedding: number[],
-  docEmbeddings: number[][],
-  topK: number = 5,
-  lambda: number = 0.7  // 相关性权重
-) {
-  // MMR 公式：λ * relevance - (1-λ) * diversity
-  // 平衡相关性和多样性，避免返回过于相似的片段
-  const mmrScore = lambda * relevance - (1 - lambda) * diversity;
-  // 返回 Top-K 索引
-}
-```
+采用“相关性-多样性”平衡的最大边际相关性算法，避免返回过于相似的片段。
 
 ### 证据三态判定
-
-```typescript
-// src/utils/evidenceGate.ts
-export function decideEvidenceStatus(top1: number, low: number, high: number): EvidenceStatus {
-  if (top1 < low) {
-    return 'no_evidence';        // 无证据：直接返回，无需调用LLM
-  } else if (top1 < high) {
-    return 'need_clarify';       // 需要澄清：返回澄清选项，引导用户优化问题
-  } else {
-    return 'has_evidence';       // 有证据：调用LLM生成完整回答
-  }
-}
-
-// 默认阈值配置
-const LOW = 0.40;    // 相似度低于0.40，认为无证据
-const HIGH = 0.52;   // 相似度高于0.52，认为有充分证据
-// 0.40-0.52区间需要澄清
-```
+基于相似度阈值将回答分为“有证据/需要澄清/无证据”，确保回答质量与安全。
 
 **策略说明**：
-- **no_evidence** (< 0.40)：检索到的文档片段相关性不足，直接返回友好提示
-- **need_clarify** (0.40-0.52)：相关性中等，返回澄清问题建议，引导用户提供更具体信息
-- **has_evidence** (≥ 0.52)：相关性足够高，调用LLM生成基于文档的准确回答
+- no_evidence：相关性不足，直接返回友好提示
+- need_clarify：相关性居中，返回澄清建议，引导用户提供更具体信息
+- has_evidence：相关性充分，调用 LLM 生成基于文档的准确回答
 
 ### 余弦相似度计算
-
-```typescript
-// src/utils/similarity.ts
-export function cosineSimilarity(a: number[], b: number[]): number {
-  // 计算两个向量的余弦相似度
-  // 返回值范围 [0, 1]，1 表示完全相同
-  const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
-  const magnitudeA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
-  const magnitudeB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
-  return dotProduct / (magnitudeA * magnitudeB);
-}
-```
+使用标准余弦相似度度量文本嵌入之间的相关性。
 
 ### 多引用跳转
-
-```typescript
-// src/App.vue
-function scrollToChunks(ids: string[]) {
-  if (!ids || ids.length === 0) return;
-
-  // 过滤无效ID并映射到chunk ID
-  const validIds = ids.filter(id => id && id.trim()).map(id => {
-    // 如果是数字，转换为chunk-id格式
-    const num = parseInt(id);
-    if (!isNaN(num) && num > 0) {
-      return `chunk-${num}`;
-    }
-    return id;
-  });
-
-  if (validIds.length === 0) return;
-  
-  // 设置高亮数组（所有引用ID）
-  highlightChunks.value = validIds;
-  
-  // 滚动到第一个引用的位置
-  const firstId = validIds[0];
-  textViewerRef.value?.scrollToChunk(firstId);
-  
-  // 3 秒后自动取消高亮
-  setTimeout(() => {
-    highlightChunks.value = [];
-  }, 3000);
-}
-```
+支持数字与 chunk-ID 混合引用格式，点击后滚动到目标位置并高亮显示。
 
 ### 文本分块（带重叠）
-
-```typescript
-// src/utils/chunk.ts
-export interface Chunk {
-  id: string;         // 唯一标识符，如 "chunk-1", "chunk-2"
-  index: number;      // 显示下标，如 1, 2, 3...
-  text: string;       // 切片内容
-  startPos: number;   // 在原文档中的起始位置
-  endPos: number;     // 在原文档中的结束位置
-}
-
-export function splitIntoChunksWithOverlap(
-  text: string,
-  chunkSize: number = 400,
-  overlapSize: number = 80
-  ): Chunk[] {
-    const result: Chunk[] = [];
-    const cleaned = text.trim().replace(/\s+/g, " ");
-
-    let start = 0;
-    let chunkIndex = 1;
-
-    while (start < cleaned.length) {
-      const end = Math.min(start + chunkSize, cleaned.length);
-      const chunkText = cleaned.slice(start, end);
-
-      if (chunkText.length >= 20) {
-        result.push({
-          id: `chunk-${chunkIndex}`,
-          index: chunkIndex,
-          text: chunkText,
-          startPos: start,
-          endPos: end
-        });
-        chunkIndex++;
-      }
-
-  start += chunkSize - overlapSize; // 保留重叠
-    }
-
-    return result;
-  }
-
-function calculateTextSimilarity(text1: string, text2: string): number {
-  if (!text1 || !text2) return 0;
-  if (text1 === text2) return 1;
-
-  const chars1 = text1.split('');
-  const chars2 = text2.split('');
-
-  const lcsLength = longestCommonSubsequence(chars1, chars2);
-  const maxLength = Math.max(chars1.length, chars2.length);
-
-  if (maxLength === 0) return 1;
-  return lcsLength / maxLength;
-}
-
-function longestCommonSubsequence(arr1: string[], arr2: string[]): number {
-  const m = arr1.length;
-  const n = arr2.length;
-  const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (arr1[i - 1] === arr2[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-  }
-
-  return dp[m][n];
-}
-
-export function removeDuplicateChunks(chunks: Chunk[], threshold: number = 0.8): Chunk[] {
-  if (!chunks || chunks.length <= 1) return chunks;
-
-  const uniqueChunks: Chunk[] = [];
-
-  for (const chunk of chunks) {
-    let isDuplicate = false;
-
-    for (const selectedChunk of uniqueChunks) {
-      const similarity = calculateTextSimilarity(chunk.text, selectedChunk.text);
-
-      if (similarity >= threshold) {
-        isDuplicate = true;
-        break;
-      }
-    }
-
-    if (!isDuplicate) {
-      uniqueChunks.push(chunk);
-    }
-  }
-
-  return uniqueChunks;
-}
-```
+采用重叠切片方式保证上下文连续性，并提供基于相似度的去重能力。
 
 ## 🎨 UI 特性
 
