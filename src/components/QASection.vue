@@ -92,11 +92,15 @@
                   {{ seg.text }}
                 </template>
                 <span v-else class="ref-group">
-                  <a
-                    href="#"
-                    class="ref-link"
-                    @click.prevent="handleRefClick(seg.ids)"
-                  >[[{{ seg.ids.join(',') }}]]</a>
+                  <template v-for="(id, idx) in seg.ids" :key="idx">
+                    <a
+                      href="#"
+                      class="ref-link"
+                      :class="{ 'inherited': msg.inheritedIds?.includes(id) }"
+                      @click.prevent="handleRefClick([id])"
+                      :title="msg.inheritedIds?.includes(id) ? '引用来源：上一轮' : '引用来源：本轮检索'"
+                    >[[{{ id }}]]<sup v-if="msg.inheritedIds?.includes(id)">↻</sup></a>
+                  </template>
                 </span>
               </span>
             </template>
@@ -117,9 +121,12 @@
                 v-for="s in msg.citations"
                 :key="s"
                 class="source-chip"
+                :class="{ 'inherited': msg.inheritedIds?.includes(s) }"
                 @click="handleRefClick([s])"
+                :title="msg.inheritedIds?.includes(s) ? '引用来源：上一轮' : '引用来源：本轮检索'"
               >
                 #{{ mapIdsToDisplayIndices([s])[0] }}
+                <span v-if="msg.inheritedIds?.includes(s)" class="inherited-badge">↻</span>
               </button>
             </div>
           </div>
@@ -221,6 +228,7 @@ type UIBubble = {
     context_chunks: number;
   };
   clarifyOptions?: string[];
+  inheritedIds?: string[]; // 继承证据ID集合
 };
 const messages = ref<UIBubble[]>([]);
 const chatContainer = ref<HTMLElement | null>(null);
@@ -517,6 +525,7 @@ async function handleAsk() {
       status: res.status,
       metrics: res.metrics,
       clarifyOptions: res.clarify_options,
+      inheritedIds: res.inherited_ids,
     });
     collapsedStates.value[messages.value.length - 1] = isLong(assistantContent);
 
@@ -1382,6 +1391,24 @@ async function handleAsk() {
   left: 100%;
 }
 
+.ref-link.inherited {
+  color: #d97706;
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.ref-link.inherited:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #d97706;
+}
+
+.ref-link sup {
+  font-size: 10px;
+  vertical-align: super;
+  margin-left: 1px;
+  opacity: 0.8;
+}
+
 .sources {
   margin-top: 18px;
   padding-top: 18px;
@@ -1412,44 +1439,40 @@ async function handleAsk() {
 }
 
 .source-chip {
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.1));
-  color: #6366f1;
-  border-radius: 12px;
-  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--primary);
+  font-size: var(--text-xs);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  font-weight: 600;
-  font-size: 12px;
-  position: relative;
-  overflow: hidden;
-}
-
-.source-chip::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  background: rgba(99, 102, 241, 0.2);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  transition: width 0.4s ease, height 0.4s ease;
+  transition: all 0.2s;
 }
 
 .source-chip:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.18));
-  border-color: rgba(99, 102, 241, 0.4);
-  box-shadow: 
-    0 4px 12px rgba(99, 102, 241, 0.25),
-    0 0 0 2px rgba(99, 102, 241, 0.1);
-  transform: translateY(-2px);
+  background: var(--primary-weak);
+  border-color: var(--primary);
 }
 
-.source-chip:hover::before {
-  width: 100px;
-  height: 100px;
+.source-chip.inherited {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #d97706;
+}
+
+.source-chip.inherited:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #d97706;
+}
+
+.inherited-badge {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.8;
+  margin-left: 2px;
 }
 
 /* 错误状态 */

@@ -22,6 +22,8 @@ export interface QAResponse {
   clarify_options?: string[];
   // 本轮回答真正使用到的片段明细（用于前端构建 ChatMessage.usedChunks）
   used_chunks_detail?: Chunk[];
+  // 哪些片段是继承自上一轮的（ID集合）
+  inherited_ids?: string[];
 }
 
 // 多轮对话消息类型

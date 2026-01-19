@@ -273,9 +273,15 @@ export async function answerQuestion(
   const contextChunksForPrompt = mergedContextChunks.length ? mergedContextChunks : currentContextChunks;
   const contextIdsSet = new Set(contextChunksForPrompt.map(c => c.id));
 
+  // 标记继承来源：若片段来自继承，在Prompt中加注 (来源：上一轮)
+  const inheritedIds = new Set(inheritedChunks.map(c => c.id));
+
   // 构建提示词（使用预算处理后的上下文 + 继承证据）
   const userChunks = contextChunksForPrompt
-    .map((item) => `#${item.id}: ${item.text}`)
+    .map((item) => {
+      const sourceLabel = inheritedIds.has(item.id) ? " (引用来源：上一轮)" : "";
+      return `#${item.id}${sourceLabel}: ${item.text}`;
+    })
     .join("\n----\n");
 
   const historyText =
@@ -364,7 +370,8 @@ export async function answerQuestion(
       metrics,
       need_clarify: false,
       citations,
-      used_chunks_detail: usedChunksDetail
+      used_chunks_detail: usedChunksDetail,
+      inherited_ids: Array.from(inheritedIds)
     };
   } catch (e) {
     throw new Error("LLM 返回的内容不是合法 JSON");
