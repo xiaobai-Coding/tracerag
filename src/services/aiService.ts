@@ -65,13 +65,17 @@ export const streamDeepSeekAPI = async (
     console.log('data....', data)
     const choices = data?.choices?.[0]?.message?.content;
     if (!choices) {
-      throw new Error("Invalid model response");
-    }
-    try {
-      return JSON.parse(choices)
-    } catch (e) {
-      throw new Error("Failed to parse model response");
-    }
+    throw new Error("Invalid model response");
+  }
+  
+  // 尝试清理 Markdown 标记（例如 ```json ... ```）
+  const jsonStr = choices.replace(/^```json\s*/, "").replace(/^```\s*/, "").replace(/\s*```$/, "");
+  
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    throw new Error("Failed to parse model response");
+  }
     // const reader = response.body.getReader();
     // const decoder = new TextDecoder("utf-8");
   
