@@ -23,41 +23,45 @@ interface EmbeddingResponse {
   message?: string;
 }
 
+import { logger } from "./logger";
+
 /**
  * 调用本地 embedding API
  */
 async function callEmbeddingAPI(texts: string[], purpose?: 'query' | 'doc'): Promise<number[][]> {
-  const response = await fetch('/api/embedding', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-client-token': 'tracerag-web'
-    },
-    body: JSON.stringify({
-      texts,
-      purpose
-    })
-  });
+  return await logger.trackTime('Vector', 'Embedding', async () => {
+    const response = await fetch('/api/embedding', {
+        method: 'POST',
+        headers: {
+        'Content-Type': 'application/json',
+        'x-client-token': 'tracerag-web'
+        },
+        body: JSON.stringify({
+        texts,
+        purpose
+        })
+    });
 
-  if (!response.ok) {
-    // 尝试解析错误响应
-    let errorMessage = '网络请求失败';
-    try {
-      const errorData: EmbeddingResponse = await response.json();
-      if (errorData.status === 'error' && errorData.message) {
-        errorMessage = errorData.message;
-      }
-    } catch (e) {
-      // 解析失败，使用默认错误信息
+    if (!response.ok) {
+        // 尝试解析错误响应
+        let errorMessage = '网络请求失败';
+        try {
+        const errorData: EmbeddingResponse = await response.json();
+        if (errorData.status === 'error' && errorData.message) {
+            errorMessage = errorData.message;
+        }
+        } catch (e) {
+        // 解析失败，使用默认错误信息
+        }
+        throw new Error(errorMessage);
     }
-    throw new Error(errorMessage);
-  }
 
-  const data: EmbeddingResponse = await response.json();
-  if (data.status !== 'ok' || !data.data?.embeddings) {
-    throw new Error('API响应格式错误');
-  }
-  return data.data.embeddings;
+    const data: EmbeddingResponse = await response.json();
+    if (data.status !== 'ok' || !data.data?.embeddings) {
+        throw new Error('API响应格式错误');
+    }
+    return data.data.embeddings;
+  }, { text_length: texts.reduce((acc, t) => acc + t.length, 0), model: 'dashscope-embedding' });
 }
 
 /**

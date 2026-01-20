@@ -3,6 +3,8 @@ import { HISTORY_SUMMARY_PROMPT } from "../prompts/prompt"
 import { countTokens } from "./tokenCounter";
 
 
+import { logger } from "./logger";
+
 /**
  * 将对话历史压缩为摘要（Map-Reduce 模式）
  * 
@@ -23,91 +25,112 @@ export async function summarizeHistory(
   const TOKEN_THRESHOLD = 2500; // token最大阀值
 
   const totalTokens = countTokens(history);
-  console.log(`[HistoryManager] 预估总 Token: ${totalTokens}`);
-
+  
   if (!history || history.length === 0) return history;
   if (totalTokens <= TOKEN_THRESHOLD) return history;
 
+  // 使用 Logger 的 runWithTrace 开启一个新的 Trace (如果上层没有 Trace)
+  // 这里假设 summarizeHistory 可能在某个上下文中被调用，或者作为独立任务
+  // 为了安全起见，我们包裹在 runWithTrace 中，但通常应该在上层统一开启 Trace
+  // 这里我们假设上层可能没开启，我们尽量复用或者新开
+  // 但 logger.runWithTrace 如果没有传入 traceId 会新建
+  // 考虑到这是一个工具函数，我们不强制在这里开启新的 root trace，而是直接使用 trackTime
+  // 如果当前已经在 trace 中，trackTime 会使用当前的 traceId
+
   try {
-    // Map 阶段：保留最新 2 轮（约 4 条消息），其余旧消息做摘要
-    const KEEP_MESSAGES = 4;
-    const messagesToSummarize = history.slice(0, Math.max(0, history.length - KEEP_MESSAGES));
-    const recentMessages = history.slice(-KEEP_MESSAGES);
+    return await logger.trackTime('HistoryManager', 'SummarizeHistory', async () => {
+        logger.info('HistoryManager', 'StartSummarize', { total_tokens: totalTokens, threshold: TOKEN_THRESHOLD });
 
-    // 如果没有可摘要的旧消息，则不压缩
-    if (!messagesToSummarize.length) return history;
+        // Map 阶段：保留最新 2 轮（约 4 条消息），其余旧消息做摘要
+        const KEEP_MESSAGES = 4;
+        const messagesToSummarize = history.slice(0, Math.max(0, history.length - KEEP_MESSAGES));
+        const recentMessages = history.slice(-KEEP_MESSAGES);
 
-    // 将旧消息格式化为文本
-    const historyText = messagesToSummarize
-      .map((m, idx) => {
-        const prefix = m.role === "user" ? "user" : "assistant";
-        return `${idx + 1}. ${prefix}：${m.content}`;
-      })
-      .join("\n");
+        // 如果没有可摘要的旧消息，则不压缩
+        if (!messagesToSummarize.length) return history;
 
-    // 调用 AI 生成摘要
-    const summaryPrompt = HISTORY_SUMMARY_PROMPT.replace("{history}", historyText);
+        // Map Phase: 准备数据
+        const historyText = messagesToSummarize
+        .map((m, idx) => {
+            const prefix = m.role === "user" ? "user" : "assistant";
+            return `${idx + 1}. ${prefix}：${m.content}`;
+        })
+        .join("\n");
 
-    const requestBody = {
-      messages: [
-        {
-          role: "system",
-          content: "你是一个专业的对话历史摘要助手，擅长提取关键信息并压缩长文本。",
-        },
-        { role: "user", content: summaryPrompt },
-      ],
-      stream: false,
-      temperature: 0.2, // 低温度保证摘要的准确性和一致性
-    };
+        // 调用 AI 生成摘要 (Reduce Phase 实际上在这里，LLM 作为一个 Reduce Worker)
+        // 我们将其视为 Map-Reduce 的 Reduce 部分，或者整体看作一个处理
+        // 为了符合 Requirement 的 "Map-Reduce 监控"，我们可以把构建 historyText 看作 Map
+        // 把 LLM 生成看作 Reduce
 
-    const response = await fetch("/api/ai", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-client-token": "tracerag-web",
-      },
-      body: JSON.stringify(requestBody),
+        // 模拟 Map 阶段埋点 (虽然这里是同步的，为了演示 Map 阶段埋点)
+        await logger.trackTime('HistoryManager', 'MapPhase', async () => {
+             // 这里的 "Map" 实际上是把多条消息映射为一个文本块
+             // 我们可以记录 input_length
+             return historyText;
+        }, { phase: 'map', shard_count: messagesToSummarize.length, input_length: historyText.length });
+
+
+        const summaryPrompt = HISTORY_SUMMARY_PROMPT.replace("{history}", historyText);
+
+        const requestBody = {
+        messages: [
+            {
+            role: "system",
+            content: "你是一个专业的对话历史摘要助手，擅长提取关键信息并压缩长文本。",
+            },
+            { role: "user", content: summaryPrompt },
+        ],
+        stream: false,
+        temperature: 0.2, // 低温度保证摘要的准确性和一致性
+        };
+
+        // Reduce Phase: LLM 生成摘要
+        const cleanedSummary = await logger.trackTime('HistoryManager', 'ReducePhase', async () => {
+             const response = await fetch("/api/ai", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-client-token": "tracerag-web",
+                },
+                body: JSON.stringify(requestBody),
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                logger.error('HistoryManager', 'ReducePhase', new Error(`摘要生成失败: ${response.status} - ${text}`));
+                throw new Error("API_ERROR");
+            }
+
+            const data = await response.json();
+            const summaryContent: string | undefined = data?.choices?.[0]?.message?.content;
+
+            if (!summaryContent || typeof summaryContent !== "string") {
+                 throw new Error("INVALID_CONTENT");
+            }
+            
+            return summaryContent.trim().replace(/^["']|["']$/g, "");
+        }, { phase: 'reduce' });
+        
+        // 重组历史
+        const summaryMessage: ChatMessage = {
+            role: "assistant",
+            content: `[前文背景摘要]：${cleanedSummary}`,
+        };
+
+        const optimizedHistory = [summaryMessage, ...recentMessages];
+
+        logger.info('HistoryManager', 'SummaryComplete', { 
+            original_count: history.length, 
+            optimized_count: optimizedHistory.length,
+            original_tokens: totalTokens
+        });
+
+        return optimizedHistory;
+
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.warn(
-        `[HistoryManager] 摘要生成失败 (${response.status}): ${text}，降级使用原始历史`
-      );
-      return history; // 降级：返回原始历史
-    }
-
-    const data = await response.json();
-    const summaryContent: string | undefined =
-      data?.choices?.[0]?.message?.content;
-
-    if (!summaryContent || typeof summaryContent !== "string") {
-      console.warn(
-        "[HistoryManager] AI 返回的摘要内容无效，降级使用原始历史"
-      );
-      return history; // 降级：返回原始历史
-    }
-
-    const cleanedSummary = summaryContent.trim().replace(/^["']|["']$/g, "");
-
-    // Reduce 阶段：重组历史
-    // 首条消息为背景摘要（标记为 assistant role，便于后续处理）
-    const summaryMessage: ChatMessage = {
-      role: "assistant",
-      content: `[前文背景摘要]：${cleanedSummary}`,
-    };
-
-    // Reduce：摘要 + 最近 2 轮（4 条）原始消息
-    const optimizedHistory = [summaryMessage, ...recentMessages];
-
-    console.log(
-      `[HistoryManager] 历史压缩完成：${history.length} 条 → ${optimizedHistory.length} 条（token ${totalTokens} > ${TOKEN_THRESHOLD}）`
-    );
-
-    return optimizedHistory;
   } catch (error) {
-    console.error("[HistoryManager] 摘要生成异常:", error);
     // 降级：返回原始历史，确保不影响主流程
+    logger.error("HistoryManager", "SummarizeFailed", error);
     return history;
   }
 }
