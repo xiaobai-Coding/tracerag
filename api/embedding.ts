@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { kv } from "@vercel/kv";
 import { scanInjectionRisk } from "./_utils/scanInjectionRisk.js";
+import { logger } from "../src/utils/logger.js"; // 确保路径正确，可能需要调整 tsconfig 或打包配置
 
 interface RequestBody {
   texts: string[];
@@ -254,13 +255,15 @@ export default async function handler(
     // 调用DashScope API
     const { embeddings, model } = await callDashScopeEmbedding(body.texts);
     const duration = Date.now() - startTime;
-    console.log(
-      `[embedding] 完成, requestId=${requestId}, purpose=${
-        body.purpose || "unknown"
-      }, texts=${body.texts.length}, duration=${duration}ms, hasInjectionRisk=${
-        injectionResult.hasRisk
-      }`
-    );
+    
+    // 使用新的 Logger 输出结构化日志
+    logger.info("API", "Embedding", {
+      requestId,
+      purpose: body.purpose || "unknown",
+      texts_count: body.texts.length,
+      duration_ms: duration,
+      hasInjectionRisk: injectionResult.hasRisk
+    });
 
     // 成功响应
     const successResponse: SuccessResponse = {
@@ -278,9 +281,7 @@ export default async function handler(
     response.status(200).json(successResponse);
   } catch (error) {
     const duration = Date.now() - startTime;
-    console.error(
-      `[embedding] 错误, requestId=${requestId}, duration=${duration}ms, error=${error}`
-    );
+    logger.error("API", "EmbeddingFailed", error, { requestId, duration_ms: duration });
 
     let code: ErrorResponse["code"] = "INTERNAL_ERROR";
     let message = "内部服务器错误";
