@@ -68,14 +68,15 @@
 - ✅ **上下文构建**：将检索到的片段作为上下文输入 AI
 - ✅ **引用标记**：回答中包含 `[[1]]`、`[[chunk-1]]` 等多种引用格式
 - ✅ **引用完整性**：严格验证 AI 引用是否在提供的片段中，确保回答可靠性
-- ✅ **流式输出**：实时显示 AI 生成进度
+- ✅ **流式输出**：实时显示 AI 生成进度，支持打字机效果
+- ✅ **全链路监控**：内置结构化日志系统，追踪 TTFT（首字延迟）、Token 消耗与各阶段耗时
 - ✅ **严格约束**：只基于文档内容回答，不编造信息
 
 ### AI 摘要
 - ✅ 自动生成文档摘要（最多 100 字）
 - ✅ 提取 3~5 条关键点
 - ✅ 支持引用标记：摘要和关键点中包含 `[[#编号]]` 格式的引用
-- ✅ 流式输出：实时显示 AI 生成进度
+- ✅ **流式打字机**：实时显示摘要生成过程，不再枯燥等待
 
 ### 引用跳转
 - ✅ **多格式支持**：支持数字 `[[1,4]]` 和 chunk-ID `[[chunk-1,chunk-4]]` 格式
@@ -320,16 +321,18 @@ vercel --prod
 
 ### RAG 过程日志（JSON）
 
-- 后端接口：`/api/log`，将 JSON 逐行写入项目根目录 `rag_process.log`
+- 后端接口：`/api/log`（已弃用，升级为 Serverless 友好方案）
+- **全链路 Logger**：
+  - **零依赖**：基于 Node.js `async_hooks` 实现 `AsyncLocalStorage`，无需第三方库
+  - **结构化输出**：所有日志以 JSON 格式输出至 `stdout`，自动被 Vercel/AWS 收集
+  - **性能追踪**：自动记录每个关键步骤（向量化、检索、重写、生成）的耗时 (`duration_ms`)
+  - **TTFT 监测**：精准捕获 LLM 流式响应的首字延迟 (`ttft_ms`)
+  - **Token 统计**：记录输入/输出 Token 消耗
 - 字段示例：
-  - `strategy`: 实际策略（`topk` 或 `mmr`）
-  - `top1_score`: 最匹配片段相似度
-  - `used_chunks`: 进入 Context 的片段数量
-  - `truncated_chunks`: 因预算被舍弃的片段数量
-  - `hasInjectionRisk`: 是否命中注入关键字（如 “ignore previous instructions”）
-  - `latency`: 毫秒耗时
-  - `error_code`: 0 成功，非 0 为错误码（如 1001 引用不一致，1002 JSON 解析失败）
-- 注意：在 serverless 环境中文件系统可能不持久，生产建议改用外部日志服务
+  - `traceId`: 请求链路唯一标识
+  - `module`: 模块名 (LLM, Vector, MapReduce...)
+  - `step`: 步骤名 (StreamRequest, Embedding...)
+  - `metadata`: 上下文相关的元数据 (requestId, shard_count, text_length...)
 
 ### 证据三态与折叠逻辑
 
