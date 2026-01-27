@@ -1,5 +1,390 @@
 # TraceRAG
 
+[中文版本](#chinese-version)
+
+A complete RAG (Retrieval-Augmented Generation) document Q&A system built with Vue 3 + TypeScript + Vercel Serverless Functions. Supports PDF/DOCX document parsing, intelligent chunking, vector retrieval, and AI-driven Q&A, enabling precise question answering based on document content.
+
+## 📋 Introduction
+
+This project is an end-to-end RAG Q&A system that integrates the full process of document parsing, text chunking, vectorization, semantic retrieval, and generative Q&A. After users upload documents, the system automatically extracts text, generates vectors, builds indexes, finds the most relevant document segments through semantic retrieval, and finally uses AI to generate accurate answers based on document content, while supporting multi-turn conversations and context management.
+
+### Core Capabilities
+
+- 📄 **Multi-format Support**: Parsing of PDF (.pdf) and DOCX (.docx) files
+- ✂️ **Intelligent Chunking**: Overlapping slicing strategy to preserve context continuity, supporting 1024-dimensional vector mapping
+- ✅ **Intent Recognition**: Automatically identifies user intent based on question content to optimize retrieval strategies
+- 🔢 **Vectorization**: Uses Alibaba DashScope Embedding to generate text vectors, supporting vector caching
+- 🔍 **Semantic Retrieval**: Vector retrieval based on cosine similarity, supporting MMR algorithm for diversity optimization
+- 🤖 **AI Q&A**: DeepSeek API-based intelligent Q&A, purely based on document content, supporting SSE streaming typewriter effect
+- 🛡️ **Citation Integrity**: Strictly validates whether AI citations exist in the provided document segments to ensure answer reliability
+- 🔗 **Citation Navigation**: Citations in answers are clickable to jump to original segments with highlighting; inherited citations show special style (Amber + ↻)
+- 📊 **AI Summary**: Automatically generates document summaries and key points, supporting streaming list rendering
+- 🙋 **Multi-turn Q&A**: Supports continuous dialogue, retaining context information to improve answer quality
+- 🎨 **Unified Visual System**: Purple-blue theme, modern interface design consistent with RAG project style
+- 📡 **Full-link Monitoring**: Built-in zero-dependency Logger, tracking TTFT, Token usage, and Map-Reduce latency based on AsyncLocalStorage
+
+## ✨ Features
+
+### Multi-turn Dialogue & Context Management
+- ✅ **Query Rewriting**: Rewrites current questions into standalone search terms to eliminate pronoun references and ambiguity; chat automatically skips retrieval
+- ✅ **Intent Recognition**: Automatically identifies user intent based on question content to optimize retrieval strategies
+- ✅ **Multi-turn QA**: Supports continuous dialogue, retaining context information to improve answer quality
+- ✅ **History Summary (Map-Reduce)**: Compresses old messages into background summaries when history exceeds threshold, keeping recent dialogue, controlling tokens, and improving relevance
+- ✅ **Citation Inheritance**: Effective evidence segments from the previous turn are automatically inherited to the current turn, merged with current retrieval segments to improve answer stability and consistency
+- ✅ **Citation Navigation**: Citations in answers are clickable to jump to original segments with highlighting
+- ✅ **Evidence Isolation**: Citations from different turns do not interfere with each other to avoid information conflict
+- ✅ **Chat Mode**: Automatically skips retrieval when chat questions are detected; refuses to answer non-document-related questions to maintain system seriousness (this is not an encyclopedia)
+- ✅ **Token Budget**: Strictly controls context length to avoid exceeding model input limits and maintain answer quality
+
+### Document Parsing
+- ✅ Supports multi-page PDF documents, automatically adding page number markers
+- ✅ Supports complex Word documents, detecting page breaks
+- ✅ Retains text formatting and paragraph structure
+- ✅ Uses `pdfjs-dist` and `mammoth` libraries for parsing
+
+### Text Chunking
+- ✅ Intelligent Chunking: Segment by paragraph with overlap (default 400 chars/chunk, 80 chars overlap)
+- ✅ Automatic Filtering: Filters paragraphs with fewer than 20 characters
+- ✅ Recursive Slicing: Paragraphs exceeding 400 characters are automatically halved
+- ✅ Dual Identification: Each segment has a unique ID (chunk-1) and display index (1, 2, 3...)
+- ✅ Deduplication: Automatically removes duplicate segments based on cosine similarity (threshold 0.8)
+- ✅ Chunk Object: Contains full info like id, index, text, startPos, endPos
+
+### Vectorization & Retrieval
+- ✅ **DashScope Embedding**: Uses Alibaba Cloud `text-embedding-v4` model
+- ✅ **Vector Caching**: Automatically caches generated vectors to avoid re-computation
+- ✅ **Cosine Similarity**: Calculates similarity between query vectors and document vectors
+- ✅ **MMR Algorithm**: Maximal Marginal Relevance retrieval to balance relevance and diversity
+- ✅ **Top-K Retrieval**: Simple retrieval sorted directly by similarity
+- ✅ **Smart Strategy Switching**: Automatically chooses TopK or MMR strategy based on question length
+- ✅ **Citation Integrity Check**: Validates if AI citations are fully based on provided segments
+
+### AI Q&A
+- ✅ **Semantic Retrieval**: Retrieves relevant document segments based on user questions
+- ✅ **Context Budget Control**: Fine-grained control of context length via hybrid strategy
+  - **Character Limit**: Ensures context fits model limits
+  - **Dynamic Selection**: Adjusts segment count based on question complexity
+  - **Coverage Assessment**: Judges information sufficiency based on keyword coverage and semantic relevance
+  - **Adaptive Optimization**: Avoids redundancy to improve quality and efficiency
+- ✅ **Evidence Tri-state**: Smartly judges answer strategy based on similarity thresholds (Has Evidence / Needs Clarify / No Evidence)
+- ✅ **Context Construction**: Feeds retrieved segments as context to AI
+- ✅ **Citation Markers**: Answers include citations like `[[1]]`, `[[chunk-1]]`
+- ✅ **Citation Integrity**: Strictly validates citations against provided segments
+- ✅ **Streaming Output**: Real-time display of AI generation progress, supporting typewriter effect
+- ✅ **Full-link Monitoring**: Built-in structured logging for TTFT, Token consumption, and step latency
+- ✅ **Strict Constraints**: Answers based only on document content, no fabrication
+
+### AI Summary
+- ✅ Automatically generates document summary (max 100 words)
+- ✅ Extracts 3~5 key points
+- ✅ Supports citation markers: Summary and key points include `[[#ID]]` format citations
+- ✅ **Streaming Typewriter**: Real-time display of summary generation process
+
+### Citation Navigation
+- ✅ **Multi-format Support**: Supports number `[[1,4]]` and chunk-ID `[[chunk-1,chunk-4]]` formats
+- ✅ **Smart Navigation**: Auto-scrolls to the segment with the smallest index upon click
+- ✅ **Multi-segment Highlighting**: Highlights all cited segments simultaneously
+- ✅ **Flash Animation**: Shows flashing animation on jump to emphasize location
+- ✅ **Auto-cancel**: Automatically cancels highlight after 3 seconds
+- ✅ **Integrity Validation**: Strictly verifies if citations point to valid document segments
+- ✅ **Inherited Citation Style**: Inherited citations from previous turns appear in Amber with a refresh icon (↻) to distinguish from current turn citations (Blue)
+
+### User Experience
+- 🎯 **Drag & Drop Upload**: Supports dragging files to upload area
+- ⌨️ **Keyboard Shortcuts**: Enter to send, Shift+Enter for new line
+- 🌊 **Ultimate Streaming**:
+  - **Typewriter Effect**: QA bubbles generate text character-by-character in real-time
+  - **Streaming List Rendering**: Summary key points are identified and rendered as bullet points in real-time
+  - **Auto-scroll**: Dialogue content auto-scrolls to bottom during generation
+- 🔄 **Retrieval Strategy Selection**: Title bar button + dropdown menu, supports Auto/TopK/MMR strategies with color indicators
+  - **Auto Strategy**: Use TopK for questions < 50 words, otherwise MMR
+  - **Evidence Consistency**: Both strategies use raw similarity for evidence tri-state judgment
+- 📊 **Status Feedback**: Real-time display of loading status and error messages
+- 📈 **Statistics**: Displays character count, segment count, citation count
+- 🎨 **Three-column Layout**: AI Summary, Document Content, Document Q&A cards
+- 🌈 **Unified Color Scheme**: Purple-blue visual system, gradient backgrounds, soft shadows
+- 📱 **Responsive Design**: Adapts to mobile and desktop
+
+## 🛠️ Tech Stack
+
+- **Frontend Framework**: Vue 3 (Composition API + `<script setup>`)
+- **Type System**: TypeScript
+- **Build Tool**: Vite
+- **Deployment**: Vercel (Serverless Functions + KV Storage)
+- **PDF Parsing**: `pdfjs-dist` (v3.11.174)
+- **DOCX Parsing**: `mammoth` (v1.11.0)
+- **Vectorization**: Alibaba DashScope Embedding (`text-embedding-v4`)
+- **AI Service**: DeepSeek API (Streaming)
+- **Retrieval Algorithms**: Cosine Similarity + MMR
+- **State Management**: Vue 3 Composition API
+
+## 📁 Project Structure
+
+```
+tracerag/
+├── api/                          # Vercel Serverless Functions
+│   ├── _utils/
+│   │   └── scanInjectionRisk.ts  # Security scanning tool
+│   ├── ai.ts                     # AI Q&A API
+│   └── embedding.ts              # Vectorization API
+├── src/
+│   ├── App.vue                   # Main app component (Parsing, Summary, Q&A)
+│   ├── main.ts                   # App entry
+│   ├── style.css                 # Global styles
+│   ├── env.d.ts                  # Vue type declarations
+│   ├── components/
+│   │   ├── FileUploader.vue      # File upload component
+│   │   ├── TextViewer.vue        # Text viewer (Highlighting & Scrolling)
+│   │   └── QASection.vue         # Q&A component (Input, Answer, Citations)
+│   ├── services/
+│   │   ├── aiService.ts          # AI Service (DeepSeek API streaming)
+│   │   ├── qaService.ts          # RAG QA Service (Vectorization, Retrieval, Q&A)
+│   │   └── openaiClient.ts       # OpenAI compatible client
+│   ├── prompts/
+│   │   └── prompt.ts             # AI Prompts
+│   ├── styles/
+│   │   └── tokens.css            # Design tokens
+│   ├── types/
+│   │   └── qa.ts                 # TypeScript types
+│   └── utils/
+│       ├── chunk.ts              # Text chunking (Overlap support)
+│       ├── docxParser.ts         # DOCX parser
+│       ├── embedding.ts          # Vectorization tool (DashScope)
+│       ├── evidenceGate.ts       # Evidence gating mechanism
+│       ├── mmr.ts                # MMR algorithm
+│       ├── pdfParser.ts          # PDF parser
+│       ├── scanInjectionRisk.ts  # Injection risk scanning
+│       ├── similarity.ts         # Similarity calculation (Cosine)
+│       └── utils.ts              # Utility functions
+├── test-evidence-gate.js         # Evidence gate tests
+├── test-chunk.js                 # Chunking tests
+├── test-citation-integrity.js    # Citation integrity tests
+├── package.json
+├── tsconfig*.json
+├── vite.config.ts
+└── vercel.json                   # Vercel config
+```
+
+## 🚀 Quick Start
+
+### Install Dependencies
+
+```bash
+npm install
+```
+
+### Environment Configuration
+
+#### Local Development Environment Variables
+
+Create `.env.local` in project root:
+
+```env
+# DeepSeek API (for Q&A and Summary)
+VITE_AI_API_KEY=your_deepseek_api_key
+VITE_AI_API_BASE_URL=https://api.deepseek.com
+```
+
+#### Vercel Environment Variables
+
+Configure in Vercel project settings:
+
+```env
+# DashScope Embedding API (Server-side)
+DASHSCOPE_API_KEY=your_dashscope_api_key
+DASHSCOPE_EMBEDDING_MODEL=text-embedding-v4
+
+# DeepSeek API (Server-side)
+AI_API_KEY=your_deepseek_api_key
+AI_API_BASE_URL=https://api.deepseek.com
+```
+
+**Note**: Vectorization and AI requests are serverless; sensitive keys are stored in server-side env vars.
+
+### Local Development
+
+Uses Vercel Serverless Functions. Recommend using Vercel Dev:
+
+#### Install Vercel CLI
+
+```bash
+npm install -g vercel
+```
+
+#### Start Full-stack Dev Server
+
+```bash
+vercel dev --port 3000
+```
+
+### Access Application
+
+Visit `http://localhost:5173`.
+
+### Build for Production
+
+```bash
+npm run build
+```
+
+### Preview Production Build
+
+```bash
+npm run preview
+```
+
+### Deploy to Vercel
+
+#### Option 1: Vercel CLI
+
+```bash
+vercel login
+vercel --prod
+```
+
+#### Option 2: GitHub Integration
+
+1. Push code to GitHub
+2. Import project in Vercel
+3. Configure environment variables
+4. Automatic deployment
+
+### Runtime Configuration (SSE & Security)
+
+Add to Vercel Environment Variables:
+
+- `CLIENT_TOKEN`: Consistent with frontend `x-client-token` header, default `tracerag-web`
+
+## 📖 Usage Guide
+
+### Workflow
+
+1. **Upload Document**: Drag & drop or click to upload PDF/DOCX.
+2. **Auto Processing**: Text extraction, chunking, AI summary generation.
+3. **View Results**: AI Summary (Left), Document Content (Middle), Q&A (Right).
+4. **Document Q&A**: Ask questions, AI retrieves and answers with citations.
+5. **Citation Navigation**: Click citations to jump to text segments.
+
+### Q&A Streaming (Typewriter)
+
+- **True Streaming**: Backend `/api/ai` proxies SSE frames (`data: ...\n\n`) from upstream to frontend.
+- **Fallback**: Simulates typing if upstream is not a readable stream.
+- **Incremental Scroll**: Auto-scrolls to bottom after each chunk.
+
+## 🔧 Core Implementation
+
+### RAG QA Flow
+
+Retrieval -> Context Construction -> Generation & Verification.
+
+### SSE Proxy
+
+- Backend: `/api/ai` sets `stream: true` and proxies DeepSeek SSE frames.
+- Headers: `Content-Type: text/event-stream`.
+- Location: `api/ai.ts`.
+
+### RAG Process Logging (JSON)
+
+- **Zero-dependency Logger**: Uses Node.js `AsyncLocalStorage`.
+- **Structured Output**: JSON to `stdout`.
+- **Metrics**: `duration_ms`, `ttft_ms`, Token usage.
+
+### Evidence Tri-state & Folding
+
+- **States**: `has_evidence`, `need_clarify`, `no_evidence`.
+- **Folding**: Auto-folds long answers (>6 lines).
+
+### Vectorization
+
+Server-side vectorization with caching.
+
+### Smart Retrieval Strategy
+
+Auto-switch between TopK and MMR based on question length.
+
+### Evidence Judgment
+
+Similarity threshold-based judgment.
+
+## 🎨 UI Features
+
+- **Visual Design**: Purple-blue theme.
+- **Interaction**: Drag & drop, shortcuts, smooth scrolling.
+- **Components**: Text viewer, Citation markers, Flash animation.
+
+## 🔍 RAG System Architecture
+
+```
+Document Upload
+    ↓
+Parsing (PDF/DOCX)
+    ↓
+Text Extraction
+    ↓
+Chunking (Overlap & ID)
+    ↓
+Deduplication
+    ↓
+Vectorization (DashScope)
+    ↓
+Vector Cache
+    ↓
+User Query
+    ↓
+Query Vectorization
+    ↓
+Semantic Retrieval (Smart Strategy)
+    ↓
+Top-K or MMR
+    ↓
+Evidence Tri-state Judgment
+    ↓
+[Has Evidence] Prompt Construction
+    ↓
+[Has Evidence] AI Generation (DeepSeek)
+    ↓
+[Has Evidence] Answer Parsing
+    ↓
+[Has Evidence] Citation Integrity Check
+    ↓
+Display Result + Citation Navigation
+```
+
+## ⚠️ Notes
+
+1. **API Config**: Local vs Vercel env vars.
+2. **File Size**: < 50MB recommended.
+3. **Browser**: Modern browsers required.
+4. **Vector Dim**: 1024.
+5. **Retrieval Params**: Top-K=3, MMR lambda=0.7.
+6. **Smart Strategy**: < 50 words TopK, else MMR.
+7. **Evidence Thresholds**: LOW=0.40, HIGH=0.52.
+8. **Citation Format**: `[[1]]`, `[[chunk-1]]`.
+9. **Integrity**: Strict validation.
+10. **Deduplication**: Threshold 0.8.
+
+## 📄 License
+
+MIT License
+
+## 👤 Author
+
+AI Agent Labs
+
+## 📞 Contact
+
+Issues or Pull Requests welcome.
+
+---
+
+**Note**: TraceRAG is a complete RAG Q&A system based on Vercel Serverless Functions...
+
+---
+
+<a id="chinese-version"></a>
+
+# TraceRAG
+
 一个完整的 RAG（Retrieval-Augmented Generation）文档问答系统，基于 Vue 3 + TypeScript + Vercel Serverless Functions 构建。支持 PDF/DOCX 文档解析、智能分块、向量化检索和 AI 驱动的问答功能，实现基于文档内容的精准问答。
 
 ## 📋 项目简介
