@@ -482,11 +482,41 @@ async function handleAsk() {
   loading.value = true;
   error.value = "";
   try {
+    let isStreamingStarted = false;
+    let assistantMsgIndex = -1;
+
     const res = await answerQuestion(
       currentQuestion,
       props.chunks,
       retrievalStrategy.value,
-      chatHistory.value
+      chatHistory.value,
+      (chunk) => {
+        // 收到第一个 chunk 时，关闭 loading，创建占位消息
+        if (!isStreamingStarted) {
+          isStreamingStarted = true;
+          loading.value = false;
+          messages.value.push({
+            role: "assistant",
+            content: "",
+            status: "has_evidence"
+          });
+          assistantMsgIndex = messages.value.length - 1;
+        }
+        
+        // 追加内容
+        if (assistantMsgIndex !== -1) {
+          const targetMsg = messages.value[assistantMsgIndex];
+          if (targetMsg) {
+            targetMsg.content += chunk;
+            
+            // 滚动到底部
+            const container = chatContainer.value;
+            if (container) {
+              container.scrollTop = container.scrollHeight;
+            }
+          }
+        }
+      }
     );
 
     const userMsg: ChatMessage = {
@@ -517,17 +547,40 @@ async function handleAsk() {
     // 前端保持完整历史记录，以便用户查看完整对话过程
     chatHistory.value = [...chatHistory.value, userMsg, assistantMsg];
 
-    // 将助手回答追加到对话气泡
-    messages.value.push({
-      role: "assistant",
-      content: assistantContent,
-      citations: assistantCitations,
-      status: res.status,
-      metrics: res.metrics,
-      clarifyOptions: res.clarify_options,
-      inheritedIds: res.inherited_ids,
-    });
-    collapsedStates.value[messages.value.length - 1] = isLong(assistantContent);
+    // 如果之前已经开始流式输出，则更新该消息
+    if (isStreamingStarted && assistantMsgIndex !== -1) {
+       const msg = messages.value[assistantMsgIndex];
+       if (msg) {
+         // 最终修正内容（确保完整性）
+         if (res.status === 'has_evidence') {
+            // 保持流式内容或使用最终 answer（通常一致）
+            msg.content = assistantContent; 
+         } else {
+            // 如果变成了其他状态，覆盖内容
+            msg.content = assistantContent;
+         }
+         
+         msg.citations = assistantCitations;
+         msg.status = res.status;
+         msg.metrics = res.metrics;
+         msg.clarifyOptions = res.clarify_options;
+         msg.inheritedIds = res.inherited_ids;
+         
+         collapsedStates.value[assistantMsgIndex] = isLong(assistantContent);
+       }
+    } else {
+      // 如果没有流式输出（例如直接返回 no_evidence），则走旧逻辑追加消息
+      messages.value.push({
+        role: "assistant",
+        content: assistantContent,
+        citations: assistantCitations,
+        status: res.status,
+        metrics: res.metrics,
+        clarifyOptions: res.clarify_options,
+        inheritedIds: res.inherited_ids,
+      });
+      collapsedStates.value[messages.value.length - 1] = isLong(assistantContent);
+    }
 
     await nextTick();
     if (chatContainer.value) {

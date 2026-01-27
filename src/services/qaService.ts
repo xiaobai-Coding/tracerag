@@ -26,7 +26,8 @@ export async function answerQuestion(
   question: string,
   chunks: Chunk[],
   strategy?: "auto" | "topk" | "mmr",
-  history: ChatMessage[] = []
+  history: ChatMessage[] = [],
+  onStream?: (chunk: string) => void
 ): Promise<QAResponse> {
   if (!question || !question.trim()) {
     throw new Error("question 不能为空");
@@ -78,7 +79,11 @@ export async function answerQuestion(
       },
     ];
 
-    const res = await streamDeepSeekAPI(messages, false);
+    const res = await streamDeepSeekAPI(messages, false, (chunk, key) => {
+      if (onStream && key === 'answer') {
+        onStream(chunk);
+      }
+    });
     const parsed: any = res;
     const answerText =
       parsed?.answer ||
@@ -308,7 +313,11 @@ export async function answerQuestion(
   ];
 
   // 调用 DeepSeek API 进行回答
-  const res = await streamDeepSeekAPI(messages, false);
+  const res = await streamDeepSeekAPI(messages, false, (chunk, key) => {
+    if (onStream && key === 'answer') {
+      onStream(chunk);
+    }
+  });
   const content = res || "";
 
   try {

@@ -79,7 +79,7 @@ export const streamDeepSeekAPI = async (
         let isFirstChunk = true;
         
         // 专门用于解析 JSON 响应中的多个字段 (打字机效果)
-        // 我们同时监听 result (普通问答), summary (摘要), key_points (摘要关键点)
+        // 我们同时监听 result (普通问答), summary (摘要), key_points (摘要关键点), answer (QA问答)
         const multiStreamer = onPartialResponse ? createMultiKeyStreamer((key, chunk) => {
              // 简单的策略：无论哪个字段有更新，都回调
              // 如果需要区分字段，可以修改 onPartialResponse 的签名，或者由调用方解析
@@ -87,7 +87,7 @@ export const streamDeepSeekAPI = async (
              // 对于 summary 场景，key_points 数组的 chunk 也会被透传，前端显示可能会有些乱（显示出JSON片段）
              // 但总比不显示好，且最终会修正
              onPartialResponse(chunk, key);
-        }, ["result", "summary", "key_points"]) : null;
+        }, ["result", "summary", "key_points", "answer"]) : null;
 
         while (!done) {
             const { value, done: readerDone } = await reader.read();
