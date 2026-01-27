@@ -98,6 +98,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!API_BASE_URL) {
     throw new Error("Missing AI_API_BASE_URL");
   }
+  
+  // 检查是否请求流式
+  const isStream = req.body.stream === true;
+
   try {
     // 5️⃣ 转发请求到 DeepSeek
     const response = await fetch(`${API_BASE_URL}/chat/completions`, {
@@ -109,7 +113,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         model: "deepseek-chat",
         messages,
-        temperature: 0.2
+        temperature: 0.2,
+        stream: isStream // 动态控制
       })
     });
 
@@ -117,12 +122,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const text = await response.text();
       console.error("DeepSeek error:", text);
       return res.status(502).json({
-        error: "AI service error"
+        error: "AI service error",
+        details: text
       });
     }
 
+    // 如果开启了流式，建立 SSE 通道
+    if (isStream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      
+      // Vercel Serverless 环境下可能需要刷新头部
+      res.flushHeaders?.(); 
+
+      if (!response.body) {
+        throw new Error("No response body from upstream");
+      }
+
+      // ⚠️ Node.js 18+ fetch 返回的 body 是 ReadableStream (Web Standard)
+      // Vercel Function 的 res 是 Node.js ServerResponse (Writable Stream)
+      // 我们需要做一个转换或直接迭代
+      
+      // @ts-ignore: TS 可能不识别 Web Stream 迭代器
+      for await (const chunk of response.body) {
+        // chunk 是 Uint8Array (Buffer)
+        // 直接透传给客户端，不做额外解析，保持性能
+        res.write(chunk);
+      }
+      
+      res.end();
+      return;
+    }
+
+    // 非流式情况，保持原有逻辑
     const data = await response.json();
     return res.status(200).json(data);
+
   } catch (err) {
     console.error("AI request failed:", err);
     return res.status(500).json({

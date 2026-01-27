@@ -58,7 +58,7 @@
         </div>
 
         <div v-else-if="summary" class="summary-content">
-          <h3>摘要</h3>
+          <h3 v-if="summary.summary">摘要</h3>
           <p class="summary-line">
             <span v-for="(seg, idx) in parseWithRefs(summary.summary)" :key="`s-${idx}`">
               <template v-if="seg.type === 'text'">{{ seg.text }}</template>
@@ -72,11 +72,27 @@
             </span>
           </p>
 
-          <h4>关键点</h4>
-          <ul>
+          <h4 v-if="(summary.key_points && summary.key_points.length) || (summary.key_points_raw && displayKeyPoints.length)">关键点</h4>
+          <ul v-if="summary.key_points && summary.key_points.length">
             <li v-for="(kp, idx) in summary.key_points" :key="idx">
               <span>
                 <span v-for="(seg, j) in parseWithRefs(kp)" :key="`k-${idx}-${j}`">
+                  <template v-if="seg.type === 'text'">{{ seg.text }}</template>
+                  <span v-else class="ref-group">
+                    <a
+                      href="#"
+                      class="ref-link"
+                      @click.prevent="scrollToChunks(mapRefsToChunkIds(seg.ids))"
+                    >[#{{ seg.ids.join(',') }}]</a>
+                  </span>
+                </span>
+              </span>
+            </li>
+          </ul>
+          <ul v-else-if="summary.key_points_raw && displayKeyPoints.length">
+            <li v-for="(kp, idx) in displayKeyPoints" :key="idx">
+              <span>
+                <span v-for="(seg, j) in parseWithRefs(kp)" :key="`sk-${idx}-${j}`">
                   <template v-if="seg.type === 'text'">{{ seg.text }}</template>
                   <span v-else class="ref-group">
                     <a
@@ -118,7 +134,7 @@
 
 <script setup lang="ts">
 // @ts-nocheck
-import { ref } from "vue";
+import { ref, computed } from "vue";
 // @ts-ignore - Vue component with script setup
 import FileUploader from "./components/FileUploader.vue";
 // @ts-ignore - Vue component with script setup
@@ -134,6 +150,7 @@ import { PARSE_SYSTEM_PROMPT } from "./prompts/prompt"
 type SummaryResult = {
   summary: string;
   key_points: string[];
+  key_points_raw?: string; // 流式生成的原始 key_points 字符串
 };
 
 const text = ref("");
@@ -146,6 +163,41 @@ const summaryError = ref("");
 const textViewerRef = ref<InstanceType<typeof TextViewer> | null>(null);
 const highlightChunks = ref<string[]>([]);
 let highlightClearTimer: number | null = null;
+
+// 计算流式输出的关键点列表
+const displayKeyPoints = computed(() => {
+  const raw = summary.value?.key_points_raw || "";
+  if (!raw) return [];
+
+  const points: string[] = [];
+  // 匹配完整的带引号的字符串
+  const regex = /"((?:[^"\\]|\\.)*)"/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(raw)) !== null) {
+    try {
+      // 尝试处理转义字符
+      points.push(JSON.parse(`"${match[1]}"`)); 
+    } catch (e) {
+      points.push(match[1]); 
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  // 处理末尾正在生成的部分（未闭合的引号）
+  const remainder = raw.slice(lastIndex);
+  const pendingQuoteIndex = remainder.indexOf('"');
+  if (pendingQuoteIndex !== -1) {
+    const pendingText = remainder.slice(pendingQuoteIndex + 1);
+    // 只有当有实际内容时才显示
+    if (pendingText) {
+      points.push(pendingText);
+    }
+  }
+  
+  return points;
+});
 
 // 文件类型处理器映射
 const fileHandlers: Record<string, (file: File) => Promise<string>> = {
@@ -283,15 +335,44 @@ ${chunks.value.map((c) => `#${c.index}: ${c.text}`).join("\n------------\n")}
 
   try {
     let streamed = "";
+    // 初始化 summary 对象，以便实时显示
+    summary.value = {
+      summary: "",
+      key_points: []
+    };
+
     const res = await streamDeepSeekAPI(
       messages,
       false,
-      (partial: string) => {
+      (partial: string, key?: string) => {
+        if(streamed) {
+          summaryLoading.value = false;
+        };
         streamed += partial;
+        // console.log('partial:', partial, 'key:', key)
+
+        if (summary.value) {
+          if (key === 'summary') {
+            summary.value.summary += partial;
+          } else if (key === 'key_points') {
+            // key_points 是数组，流式输出的是 raw json 字符串 (例如 `[ "point1", ...`)
+            // 我们先积累到 raw 字段用于展示
+            if (!summary.value.key_points_raw) summary.value.key_points_raw = "";
+            summary.value.key_points_raw += partial;
+          } else if (!key) {
+            // 兼容旧逻辑或无 key 的情况 (fallback)
+             // 暂时不做处理，或者也可以默认给 summary? 
+             // 如果 createMultiKeyStreamer 工作正常，key 应该总是有值的 (除了非 json 响应)
+             // 如果是非 json 响应，streamDeepSeekAPI 会回调 key=undefined，内容是纯文本
+             // 这里我们可以假设是 summary
+             // summary.value.summary += partial;
+          }
+        }
       }
     );
-    const content = res;
-    const parsed = content
+    
+    // 最终解析
+    const parsed = res;
     if (parsed?.summary && Array.isArray(parsed?.key_points)) {
       summary.value = {
         summary: parsed.summary,
