@@ -369,7 +369,8 @@ MIT License
 
 ## 👤 Author
 
-AI Agent Labs
+**xiaoBaiCoding**
+Focus on LLM applications, Agent systems, and AI front-end engineering practices.
 
 ## 📞 Contact
 
@@ -948,7 +949,8 @@ MIT License
 
 ## 👤 作者
 
-AI Agent Labs
+**xiaoBaiCoding**
+专注于 LLM 应用、Agent 系统与 AI 前端工程化实践。
 
 ## 📞 联系方式
 
