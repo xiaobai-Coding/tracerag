@@ -125,7 +125,7 @@ export async function answerQuestion(
     chunkVectors,
     k,
     strategy || "auto", // 使用传入的策略，默认auto
-    0.7   // MMR lambda参数
+    0.7  // MMR lambda参数
   );
 
   const retrievedChunks = retrievalResult.selectedChunks

@@ -428,55 +428,33 @@ export function applyContextBudget(
 
     // 评估当前覆盖度
     const currentCoverage = evaluateCoverage(selectedChunks, keywords);
-    // console.log(`[Context Budget] 当前片段数: ${selectedChunks.length}, 覆盖度: ${(currentCoverage * 100).toFixed(1)}%`);
-
-    // 调试：显示当前片段内容摘要
-    const chunkSummary = selectedChunks.map((chunk, idx) =>
-      `${idx + 1}: "${chunk.text.substring(0, 50)}..." (${chunk.text.length}chars)`
-    ).join('\n');
-    // console.log(`[Context Budget] 当前片段内容:\n${chunkSummary}`);
-
-    // 关键改进：更严格的停止条件
-    // 1. 如果第一个片段覆盖度超过90%，直接停止（问题答案很可能就在这里）
-    if (selectedChunks.length === 1 && currentCoverage >= 0.90) {
-      // console.log(`[Context Budget] ✅ 第一个片段已完全覆盖问题 (${(currentCoverage * 100).toFixed(1)}%)，无需更多片段`);
+    
+    // --- 关键逻辑修正：放宽停止条件，避免过度合并 ---
+    
+    // 1. 如果第一个片段覆盖度达到极高（>98%），且长度已经很大，才考虑停止
+    if (selectedChunks.length === 1 && currentCoverage >= 0.98 && totalChars >= 500) {
       break;
     }
 
-    // 2. 如果第一个片段覆盖度超过80%且字符数足够，停止
-    if (selectedChunks.length === 1 && currentCoverage >= 0.80 && totalChars >= 200) {
-      // console.log(`[Context Budget] ✅ 第一个片段覆盖度较高 (${(currentCoverage * 100).toFixed(1)}%)且信息充足，停止添加`);
-      break;
-    }
-
-    // 3. 如果第一个片段覆盖度超过60%且字符数足够，停止（进一步降低阈值）
-    if (selectedChunks.length === 1 && currentCoverage >= 0.60 && totalChars >= 150) {
-      // console.log(`[Context Budget] ✅ 第一个片段覆盖度及格 (${(currentCoverage * 100).toFixed(1)}%)且内容充足，停止添加`);
-      break;
-    }
-
-    // 4. 安全检查：如果覆盖度已经不错，停止
-    if (selectedChunks.length === 1 && currentCoverage >= 0.50 && totalChars >= 200) {
-      // console.log(`[Context Budget] ✅ 第一个片段有一定相关性 (${(currentCoverage * 100).toFixed(1)}%)，避免过度添加`);
-      break;
-    }
-
-    // 3. 对于多个片段，只有在覆盖度很高且有显著信息增益时才继续
-    if (selectedChunks.length >= 2) {
-      // 如果覆盖度已经很高（85%以上），考虑停止
-      if (currentCoverage >= 0.85) {
-        // console.log(`[Context Budget] 多片段已充分覆盖问题 (${(currentCoverage * 100).toFixed(1)}%)，停止添加`);
+    // 2. 对于 2-3 个片段，除非覆盖度已经完美（>95%）且字符数较多，否则继续添加
+    if (selectedChunks.length >= 2 && selectedChunks.length < 4) {
+      if (currentCoverage >= 0.95 && totalChars >= 1000) {
         break;
       }
-
-      // 如果新增的片段没有带来显著的覆盖度提升，停止
-      // 这里可以计算边际收益，如果新增片段只带来<5%的覆盖度提升，可能不值得
     }
 
-    // 4. 安全检查：避免过度添加（最多不超过合理数量）
-    if (selectedChunks.length >= 3 && currentCoverage < 0.8) {
-      // console.log(`[Context Budget] 已添加较多片段但覆盖度仍不足，强制停止以避免过度检索`);
-      break;
+    // 3. 只有当片段数量达到 maxChunks 的一半以上，或者字符数接近 maxLength 时，才使用更严格的覆盖度检查
+    const halfMaxChunks = Math.max(2, Math.floor(effectiveMaxChunks / 2));
+    if (selectedChunks.length >= halfMaxChunks) {
+      // 如果覆盖度已经非常理想，且下一个片段可能导致显著冗余或超出预算，则停止
+      if (currentCoverage >= 0.92) {
+        break;
+      }
+    }
+
+    // 4. 安全保底：始终允许至少添加 2 个片段（如果有的话），除非第一个片段就超长
+    if (selectedChunks.length < 2 && retrievedChunks.length > 1 && totalChars < maxLength * 0.8) {
+      continue;
     }
   }
 
