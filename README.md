@@ -20,8 +20,9 @@ This project is an end-to-end RAG Q&A system that integrates the full process of
 - 🔗 **Citation Navigation**: Citations in answers are clickable to jump to original segments with highlighting; inherited citations show special style (Amber + ↻)
 - 📊 **AI Summary**: Automatically generates document summaries and key points, supporting streaming list rendering
 - 🙋 **Multi-turn Q&A**: Supports continuous dialogue, retaining context information to improve answer quality
-- 🎨 **Unified Visual System**: Purple-blue theme, modern interface design consistent with RAG project style
-- 📡 **Full-link Monitoring**: Built-in zero-dependency Logger, tracking TTFT, Token usage, and Map-Reduce latency based on AsyncLocalStorage
+- 🌐 **Global i18n Support**: Deep integration with `vue-i18n@11`, supporting automatic language detection, persistence, and bilingual AI prompts (ZH/EN)
+- 🎨 **Unified Visual System**: Purple-blue theme, professional solid entity-style icon design, modern interface consistent with RAG project style
+- 📡 **Full-link Monitoring**: Built-in zero-dependency Logger, tracking TTFT, Token usage, and Map-Reduce latency based on AsyncLocalStorage with locale-tagged logging
 
 ## ✨ Features
 
@@ -90,6 +91,11 @@ This project is an end-to-end RAG Q&A system that integrates the full process of
 - ✅ **Inherited Citation Style**: Inherited citations from previous turns appear in Amber with a refresh icon (↻) to distinguish from current turn citations (Blue)
 
 ### User Experience
+- 🎯 **Global i18n**: 
+  - ✅ **Vue 3 i18n**: Built-in support for multiple languages using `vue-i18n@11`.
+  - ✅ **Auto Detection**: Automatically detects user language via `navigator.language` and persists choice in `localStorage`.
+  - ✅ **Bilingual Prompts**: Dynamic switching between `ZH_PROMPT` and `EN_PROMPT` to ensure LLM output matches UI language.
+  - ✅ **Professional Terminology**: Localized support for RAG terms like TTFT, Retrieval Score, Context Window, Vectorization, etc.
 - 🎯 **Drag & Drop Upload**: Supports dragging files to upload area
 - ⌨️ **Keyboard Shortcuts**: Enter to send, Shift+Enter for new line
 - 🌊 **Ultimate Streaming**:
@@ -110,6 +116,7 @@ This project is an end-to-end RAG Q&A system that integrates the full process of
 - **Frontend Framework**: Vue 3 (Composition API + `<script setup>`)
 - **Type System**: TypeScript
 - **Build Tool**: Vite
+- **Global i18n**: `vue-i18n@11`
 - **Deployment**: Vercel (Serverless Functions + KV Storage)
 - **PDF Parsing**: `pdfjs-dist` (v3.11.174)
 - **DOCX Parsing**: `mammoth` (v1.11.0)
@@ -406,8 +413,9 @@ Issues or Pull Requests welcome.
 - 🔗 **引用跳转**：回答中的引用可点击跳转到原文片段并高亮显示，继承引用显示特殊样式（琥珀色 + ↻）
 - 📊 **AI 摘要**：自动生成文档摘要和关键点，支持流式列表渲染
 - 🙋 **多轮问答**：支持连续对话，保留上下文信息，提升回答质量
-- 🎨 **统一视觉体系**：紫蓝色主题，符合 RAG 项目风格的现代化界面设计
-- 📡 **全链路监控**：内置 0 依赖 Logger，基于 AsyncLocalStorage 追踪 TTFT、Token 消耗与 Map-Reduce 耗时
+- 🌐 **全方位国际化支持**：深度集成 `vue-i18n@11`，支持自动语言检测、持久化以及中英双语 AI 提示词（Bilingual Prompts）
+- 🎨 **统一视觉体系**：紫蓝色主题，专业实体风格图标设计，符合 RAG 项目风格的现代化界面设计
+- 📡 **全链路监控**：内置 0 依赖 Logger，基于 AsyncLocalStorage 追踪 TTFT、Token 消耗与 Map-Reduce 耗时，支持 Locale 标签化日志记录
 
 ## ✨ 功能特性
 
@@ -477,6 +485,11 @@ Issues or Pull Requests welcome.
 - ✅ **继承引用样式**：上一轮继承的引用显示为琥珀色，并带有刷新图标 (↻)，与当前轮引用（蓝色）区分
 
 ### 用户体验
+- 🎯 **全方位国际化 (i18n)**：
+  - ✅ **Vue 3 i18n**：基于 `vue-i18n@11` 实现的多语言支持。
+  - ✅ **自动检测**：根据浏览器 `navigator.language` 自动切换语言，并持久化到 `localStorage`。
+  - ✅ **双语提示词**：动态切换 `ZH_PROMPT` 和 `EN_PROMPT`，确保 AI 输出与 UI 语言一致。
+  - ✅ **专业术语**：地道的 RAG 专业术语支持，如 TTFT、检索评分、上下文窗口、向量化等。
 - 🎯 **拖拽上传**：支持拖拽文件到上传区域
 - ⌨️ **键盘快捷键**：Enter 发送，Shift+Enter 换行
 - 🌊 **极致流式**：
@@ -497,6 +510,7 @@ Issues or Pull Requests welcome.
 - **前端框架**：Vue 3 (Composition API + `<script setup>`)
 - **类型系统**：TypeScript
 - **构建工具**：Vite
+- **国际化 (i18n)**：`vue-i18n@11`
 - **部署平台**：Vercel (Serverless Functions + KV 存储)
 - **PDF 解析**：`pdfjs-dist` (v3.11.174)
 - **DOCX 解析**：`mammoth` (v1.11.0)
