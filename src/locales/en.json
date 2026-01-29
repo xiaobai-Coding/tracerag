@@ -1,0 +1,68 @@
+{
+  "hero": {
+    "tag": "Document RAG · Q&A",
+    "title": "Document Parser & Extraction"
+  },
+  "upload": {
+    "primary": "Click to select file",
+    "secondary": "or drag and drop here",
+    "hint": "Supported formats: PDF (.pdf) · DOCX (.docx)",
+    "errorType": "Unsupported file type, only PDF and DOCX are supported"
+  },
+  "status": {
+    "parsing": "Parsing document...",
+    "failed": "Parsing failed: {error}"
+  },
+  "summary": {
+    "title": "AI Summary",
+    "chunks": "{count} Chunks",
+    "loading": "Generating summary...",
+    "placeholder": "Summary will be generated after upload...",
+    "error": "Failed to generate summary",
+    "summaryTitle": "Summary",
+    "keyPointsTitle": "Key Points"
+  },
+  "textViewer": {
+    "title": "Extracted Content",
+    "characters": "{count}K Chars"
+  },
+  "qa": {
+    "title": "RAG Document QA",
+    "placeholder": "AI conversation will appear here",
+    "hint": "Supports multi-turn dialogue and citation navigation",
+    "inputPlaceholder": "Ask a question, e.g., what is the main conclusion?",
+    "send": "Ask",
+    "generating": "Generating...",
+    "keyboardHint": "Enter to send · Shift+Enter for new line · Format [[1]] or [[1,3]]",
+    "noEvidence": {
+      "title": "Insufficient Evidence",
+      "subtitle": "No relevant document fragments found",
+      "reasons": "Possible reasons:",
+      "suggestions": "Suggested actions:",
+      "metrics": {
+        "top1": "Top Score:",
+        "strategy": "Strategy:"
+      }
+    },
+    "needClarify": {
+      "title": "Need Clarification",
+      "subtitle": "Select or provide more info",
+      "options": "Options:"
+    },
+    "sources": "Citations:",
+    "inherited": "Source: Previous Turn",
+    "current": "Source: Current Retrieval",
+    "error": "Failed to ask, please try again",
+    "noEvidenceContent": "No sufficient information found in the document to answer this question.",
+    "needClarifyContent": "Your question is a bit vague, please be more specific.",
+    "collapsed": "Expand",
+    "expanded": "Collapse"
+  },
+  "rag": {
+    "ttft": "Time to First Token (TTFT)",
+    "retrievalScore": "Retrieval Score",
+    "contextWindow": "Context Window",
+    "vectorization": "Vectorization",
+    "mapReduce": "Map-Reduce Process"
+  }
+}

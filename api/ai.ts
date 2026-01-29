@@ -49,6 +49,7 @@ async function checkRateLimit(ip: string) {
   return true;
 }
 
+import { logger } from "../src/utils/logger.js";
 // Vercel API handler
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 1️⃣ 方法校验
@@ -56,113 +57,106 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  // 2️⃣ IP 限流
-  const rawIp =
-    (req.headers["x-forwarded-for"] as string) ||
-    req.socket.remoteAddress ||
-    "unknown";
-  const ip = normalizeIp(rawIp);
-  if (!(await checkRateLimit(ip))) {
-    return res.status(429).json({
-      error: "已经达到请求限制，请稍后再试。"
-    });
-  }
-  // 3️⃣ 客户端 Token 校验
-  const CLIENT_TOKEN = process.env.CLIENT_TOKEN;
+  // 2️⃣ 获取 Locale
+  const locale = (req.headers["accept-language"] || "zh") as string;
 
-  if (!CLIENT_TOKEN) {
-    throw new Error("Missing CLIENT_TOKEN");
-  }
+  return await logger.runWithTrace(async () => {
+    // 3️⃣ IP 限流
+    const rawIp =
+      (req.headers["x-forwarded-for"] as string) ||
+      req.socket.remoteAddress ||
+      "unknown";
+    const ip = normalizeIp(rawIp);
+    if (!(await checkRateLimit(ip))) {
+      return res.status(429).json({
+        error: "已经达到请求限制，请稍后再试。"
+      });
+    }
+    // 4️⃣ 客户端 Token 校验
+    const CLIENT_TOKEN = process.env.CLIENT_TOKEN;
 
-  const clientToken = req.headers["x-client-token"];
+    if (!CLIENT_TOKEN) {
+      throw new Error("Missing CLIENT_TOKEN");
+    }
 
-  if (clientToken !== CLIENT_TOKEN) {
-    return res.status(401).json({
-      error: "Unauthorized client"
-    });
-  }
-  // 3️⃣ 参数校验
-  const { messages } = req.body;
-  if (!Array.isArray(messages)) {
-    return res.status(400).json({
-      error: "Invalid request body: messages is required"
-    });
-  }
+    const clientToken = req.headers["x-client-token"];
 
-  // 4️⃣ 读取服务端 Key
-  const API_KEY = requireEnv("AI_API_KEY");
-  const API_BASE_URL = requireEnv("AI_API_BASE_URL");
-  if (!API_KEY) {
-    throw new Error("Missing AI_API_KEY");
-  }
-  if (!API_BASE_URL) {
-    throw new Error("Missing AI_API_BASE_URL");
-  }
-  
-  // 检查是否请求流式
-  const isStream = req.body.stream === true;
-
-  try {
-    // 5️⃣ 转发请求到 DeepSeek
-    const response = await fetch(`${API_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages,
-        temperature: 0.2,
-        stream: isStream // 动态控制
-      })
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error("DeepSeek error:", text);
-      return res.status(502).json({
-        error: "AI service error",
-        details: text
+    if (clientToken !== CLIENT_TOKEN) {
+      return res.status(401).json({
+        error: "Unauthorized client"
+      });
+    }
+    // 5️⃣ 参数校验
+    const { messages } = req.body;
+    if (!Array.isArray(messages)) {
+      return res.status(400).json({
+        error: "Invalid request body: messages is required"
       });
     }
 
-    // 如果开启了流式，建立 SSE 通道
-    if (isStream) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      
-      // Vercel Serverless 环境下可能需要刷新头部
-      res.flushHeaders?.(); 
+    // 6️⃣ 读取服务端 Key
+    const API_KEY = requireEnv("AI_API_KEY");
+    const API_BASE_URL = requireEnv("AI_API_BASE_URL");
+    
+    // 检查是否请求流式
+    const isStream = req.body.stream === true;
 
-      if (!response.body) {
-        throw new Error("No response body from upstream");
+    try {
+      // 7️⃣ 转发请求到 DeepSeek
+      const response = await fetch(`${API_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages,
+          temperature: 0.2,
+          stream: isStream // 动态控制
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        logger.error("API", "DeepSeekError", new Error(text));
+        return res.status(502).json({
+          error: "AI service error",
+          details: text
+        });
       }
 
-      // ⚠️ Node.js 18+ fetch 返回的 body 是 ReadableStream (Web Standard)
-      // Vercel Function 的 res 是 Node.js ServerResponse (Writable Stream)
-      // 我们需要做一个转换或直接迭代
-      
-      // @ts-ignore: TS 可能不识别 Web Stream 迭代器
-      for await (const chunk of response.body) {
-        // chunk 是 Uint8Array (Buffer)
-        // 直接透传给客户端，不做额外解析，保持性能
-        res.write(chunk);
+      // 如果开启了流式，建立 SSE 通道
+      if (isStream) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        
+        // Vercel Serverless 环境下可能需要刷新头部
+        res.flushHeaders?.(); 
+
+        if (!response.body) {
+          throw new Error("No response body from upstream");
+        }
+
+        // @ts-ignore
+        for await (const chunk of response.body) {
+          res.write(chunk);
+        }
+        
+        res.end();
+        return;
       }
-      
-      res.end();
-      return;
+
+      // 非流式情况，保持原有逻辑
+      const data = await response.json();
+      return res.status(200).json(data);
+
+    } catch (err) {
+      logger.error("API", "AIRequestFailed", err);
+      return res.status(500).json({
+        error: "Internal Server Error"
+      });
     }
-
-    // 非流式情况，保持原有逻辑
-    const data = await response.json();
-    return res.status(200).json(data);
-
-  } catch (err) {
-    console.error("AI request failed:", err);
-    return res.status(500).json({
-      error: "Internal Server Error"
-    });
-  }
+  }, undefined, locale);
 }

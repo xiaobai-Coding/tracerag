@@ -1,5 +1,5 @@
 import type { ChatMessage } from "../types/qa";
-import { REWRITE_PROMPT} from "../prompts/prompt"
+import { getSystemPrompt } from "../prompts/prompt"
 import { logger } from "./logger";
 
 /**
@@ -9,13 +9,18 @@ import { logger } from "./logger";
  */
 export async function getStandaloneQuery(
   history: ChatMessage[],
-  currentQuery: string
+  currentQuery: string,
+  locale: string = 'zh'
 ): Promise<string> {
+  const isEn = locale.startsWith('en');
   const question = currentQuery.trim();
   if (!question) return "NO_SEARCH_NEEDED";
 
   // 简单本地规则：明显的纯打招呼/感谢，直接跳过检索，减少一次模型调用
-  const smallTalkPatterns = [/^你好[。！!]*$/i, /^hi$/i, /^hello$/i, /^谢谢[。！!]*$/i];
+  const smallTalkPatterns = isEn 
+    ? [/^hi$/i, /^hello$/i, /^thanks$/i, /^thank you$/i]
+    : [/^你好[。！!]*$/i, /^hi$/i, /^hello$/i, /^谢谢[。！!]*$/i];
+    
   if (smallTalkPatterns.some((re) => re.test(question))) {
     logger.info("QueryRewriter", "SmallTalkDetected", { original_query: question });
     return "NO_SEARCH_NEEDED";
@@ -30,10 +35,15 @@ export async function getStandaloneQuery(
                 return `${idx + 1}. ${prefix}：${m.content}`;
             })
             .join("\n")
-        : "（无）";
+        : (isEn ? "(None)" : "（无）");
 
-    const userPrompt = `
+    const userPrompt = isEn ? `
+    ###[Chat History]
+    ${historyText}
 
+    ###[Current Query]
+    ${question}
+    `.trim() : `
     【对话历史（Chat History）】
     ${historyText}
 
@@ -43,10 +53,9 @@ export async function getStandaloneQuery(
 
     const requestBody = {
         messages: [
-        { role: "system", content: REWRITE_PROMPT },
+        { role: "system", content: getSystemPrompt('REWRITE', locale) },
         { role: "user", content: userPrompt },
         ],
-        // 标记不需要流式，只要一次性响应；temperature 在服务端也会设置为较低值
         stream: false,
         temperature: 0.1,
     };
@@ -56,6 +65,7 @@ export async function getStandaloneQuery(
         headers: {
         "Content-Type": "application/json",
         "x-client-token": "tracerag-web",
+        "Accept-Language": locale
         },
         body: JSON.stringify(requestBody),
     });

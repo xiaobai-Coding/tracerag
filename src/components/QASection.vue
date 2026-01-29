@@ -2,7 +2,7 @@
   <div class="ui-card qa-card">
     <div class="card-header">
       <div class="dot purple"></div>
-      <span>RAG 文档问答</span>
+      <span>{{ $t('qa.title') }}</span>
       <div class="strategy-selector-header">
         <div class="strategy-dropdown" :class="{ open: showStrategyMenu }" @click="toggleStrategyMenu">
           <span class="strategy-text">{{ currentStrategyText }}</span>
@@ -21,7 +21,7 @@
           </div>
         </div>
       </div>
-      <span class="count" v-if="chunks?.length">片段 {{ chunks.length }} 个</span>
+      <span class="count" v-if="chunks?.length">{{ $t('summary.chunks', { count: chunks.length }) }}</span>
     </div>
 
     
@@ -44,23 +44,23 @@
                 <div class="evidence-header">
                   <div class="evidence-icon">🧪</div>
                   <div>
-                    <div class="evidence-title">证据不足</div>
-                    <div class="evidence-subtitle">未找到足够相关的文档片段</div>
+                    <div class="evidence-title">{{ $t('qa.noEvidence.title') }}</div>
+                    <div class="evidence-subtitle">{{ $t('qa.noEvidence.subtitle') }}</div>
                   </div>
                 </div>
                 <div class="evidence-content">
-                  <p class="evidence-text">可能原因：</p>
+                  <p class="evidence-text">{{ $t('qa.noEvidence.reasons') }}</p>
                   <ul class="clarify-options">
                     <li class="clarify-option" v-for="r in deriveNoEvidenceReasons(msg)" :key="r">{{ r }}</li>
                   </ul>
-                  <p class="evidence-text">建议操作：</p>
+                  <p class="evidence-text">{{ $t('qa.noEvidence.suggestions') }}</p>
                   <ul class="clarify-options">
                     <li class="clarify-option" v-for="s in deriveNoEvidenceSuggestions()" :key="s">{{ s }}</li>
                   </ul>
                   <div class="evidence-metrics">
-                    <span class="metrics-label">top1:</span>
+                    <span class="metrics-label">{{ $t('qa.noEvidence.metrics.top1') }}</span>
                     <span class="metrics-value">{{ msg.metrics?.top1_score ?? '-' }}</span>
-                    <span class="metrics-label" style="margin-left:8px;">strategy:</span>
+                    <span class="metrics-label" style="margin-left:8px;">{{ $t('qa.noEvidence.metrics.strategy') }}</span>
                     <span class="metrics-value">{{ msg.metrics?.strategy ?? 'auto' }}</span>
                   </div>
                 </div>
@@ -71,12 +71,12 @@
                 <div class="clarify-header">
                   <div class="clarify-icon">🧭</div>
                   <div>
-                    <div class="clarify-title">需要澄清</div>
-                    <div class="clarify-subtitle">选择或补充以下信息</div>
+                    <div class="clarify-title">{{ $t('qa.needClarify.title') }}</div>
+                    <div class="clarify-subtitle">{{ $t('qa.needClarify.subtitle') }}</div>
                   </div>
                 </div>
                 <div class="clarify-content">
-                  <p class="clarify-text">可选项：</p>
+                  <p class="clarify-text">{{ $t('qa.needClarify.options') }}</p>
                   <ul class="clarify-options">
                     <li class="clarify-option" v-for="opt in (msg.clarifyOptions || [])" :key="opt">{{ opt }}</li>
                   </ul>
@@ -98,7 +98,7 @@
                       class="ref-link"
                       :class="{ 'inherited': msg.inheritedIds?.includes(id) }"
                       @click.prevent="handleRefClick([id])"
-                      :title="msg.inheritedIds?.includes(id) ? '引用来源：上一轮' : '引用来源：本轮检索'"
+                      :title="msg.inheritedIds?.includes(id) ? $t('qa.inherited') : $t('qa.current')"
                     >[[{{ id }}]]<sup v-if="msg.inheritedIds?.includes(id)">↻</sup></a>
                   </template>
                 </span>
@@ -106,7 +106,7 @@
             </template>
           </div>
           <div v-if="msg.role === 'assistant' && isLong(msg.content)" class="collapse-actions">
-            <button class="collapse-btn" @click="toggleCollapse(idx)">{{ isCollapsed(idx, msg) ? '展开' : '收起' }}</button>
+            <button class="collapse-btn" @click="toggleCollapse(idx)">{{ isCollapsed(idx, msg) ? $t('qa.collapsed') : $t('qa.expanded') }}</button>
           </div>
           <div
             v-if="msg.citations && msg.citations.length && !isCollapsed(idx, msg) && msg.status !== 'no_evidence' && msg.status !== 'need_clarify'"
@@ -114,7 +114,7 @@
           >
             <span class="source-label">
               <span class="source-icon">📎</span>
-              引用片段：
+              {{ $t('qa.sources') }}
             </span>
             <div class="source-chips">
               <button
@@ -123,7 +123,7 @@
                 class="source-chip"
                 :class="{ 'inherited': msg.inheritedIds?.includes(s) }"
                 @click="handleRefClick([s])"
-                :title="msg.inheritedIds?.includes(s) ? '引用来源：上一轮' : '引用来源：本轮检索'"
+                :title="msg.inheritedIds?.includes(s) ? $t('qa.inherited') : $t('qa.current')"
               >
                 #{{ mapIdsToDisplayIndices([s])[0] }}
                 <span v-if="msg.inheritedIds?.includes(s)" class="inherited-badge">↻</span>
@@ -136,15 +136,15 @@
       <!-- 空状态 -->
       <div class="qa-placeholder" v-if="!messages.length && !loading && !error">
         <div class="placeholder-icon">💡</div>
-        <p class="placeholder-text">提问后将在这里展示 AI 对话</p>
-        <p class="placeholder-hint">支持多轮对话与引用跳转，试着问点什么吧</p>
+        <p class="placeholder-text">{{ $t('qa.placeholder') }}</p>
+        <p class="placeholder-hint">{{ $t('qa.hint') }}</p>
       </div>
 
       <!-- 错误状态 -->
       <div class="qa-error" v-if="error">
         <div class="error-icon">⚠️</div>
         <div class="error-content">
-          <div class="error-title">出错了</div>
+          <div class="error-title">{{ $t('qa.error') }}</div>
           <div class="error-message">{{ error }}</div>
         </div>
       </div>
@@ -165,7 +165,7 @@
           v-model="question"
           class="qa-textarea"
           rows="1"
-          placeholder="向文档提问，如：这份文档的主要结论是什么？"
+          :placeholder="$t('qa.inputPlaceholder')"
           :disabled="loading"
           @keydown="handleKeyDown"
           @input="autoResize"
@@ -177,13 +177,13 @@
           @click="handleAsk"
         >
           <span v-if="loading" class="btn-spinner"></span>
-          <span class="btn-text">{{ loading ? '生成中…' : '问文档' }}</span>
+          <span class="btn-text">{{ loading ? $t('qa.generating') : $t('qa.send') }}</span>
         </button>
       </div>
       <div class="qa-actions">
         <span class="qa-hint">
           <span class="hint-icon">⌨️</span>
-          <span>Enter 发送 · Shift+Enter 换行 · 引用格式 [[1]] 或 [[1,3]]</span>
+          <span>{{ $t('qa.keyboardHint') }}</span>
         </span>
       </div>
     </div>
@@ -192,9 +192,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { Chunk } from "../utils/chunk";
 import { answerQuestion } from "../services/qaService";
 import type { ChatMessage, QAResponse } from "../types/qa";
+
+const { t, locale } = useI18n();
 
 const props = defineProps<{
   chunks: Chunk[];
@@ -284,19 +287,26 @@ function deriveNoEvidenceReasons(msg: UIBubble): string[] {
   const rs: string[] = [];
   const s = msg.metrics?.top1_score ?? 0;
   const ck = msg.metrics?.context_chunks ?? 0;
-  if (ck === 0) rs.push("未检索到相关片段或片段数量过少");
-  if (s < 0.35) rs.push("最高相似度较低，相关性不足");
-  if (msg.citations && msg.citations.length === 0) rs.push("回答未引用任何文档证据");
-  if (rs.length === 0) rs.push("当前问题与文档内容关联不强");
+  if (ck === 0) rs.push(locale.value === 'zh' ? "未检索到相关片段或片段数量过少" : "No relevant fragments found or context too small");
+  if (s < 0.35) rs.push(locale.value === 'zh' ? "最高相似度较低，相关性不足" : "Top similarity score is low, relevance insufficient");
+  if (msg.citations && msg.citations.length === 0) rs.push(locale.value === 'zh' ? "回答未引用任何文档证据" : "Answer does not cite any document evidence");
+  if (rs.length === 0) rs.push(locale.value === 'zh' ? "当前问题与文档内容关联不强" : "Question has weak connection to document content");
   return rs;
 }
 
 function deriveNoEvidenceSuggestions(): string[] {
   const ss: string[] = [];
-  ss.push("重述问题并加入更具体的关键词");
-  ss.push("引用具体章节或段落编号，例如 [[1]] 或 [[chunk-2]]");
-  ss.push("切换检索策略为 TopK 或 MMR");
-  ss.push("将问题拆分为更小的子问题逐步求解");
+  if (locale.value === 'zh') {
+    ss.push("重述问题并加入更具体的关键词");
+    ss.push("引用具体章节或段落编号，例如 [[1]] 或 [[chunk-2]]");
+    ss.push("切换检索策略为 TopK 或 MMR");
+    ss.push("将问题拆分为更小的子问题逐步求解");
+  } else {
+    ss.push("Restate the question with more specific keywords");
+    ss.push("Reference specific sections or paragraph numbers, e.g., [[1]] or [[chunk-2]]");
+    ss.push("Switch retrieval strategy to TopK or MMR");
+    ss.push("Break the question into smaller sub-questions");
+  }
   return ss;
 }
 /**
@@ -516,7 +526,8 @@ async function handleAsk() {
             }
           }
         }
-      }
+      },
+      locale.value
     );
 
     const userMsg: ChatMessage = {
@@ -530,10 +541,10 @@ async function handleAsk() {
       assistantContent = res.answer || "";
       assistantCitations = res.citations || [];
     } else if (res.status === "no_evidence") {
-      assistantContent = "文档中没有找到足够的相关信息来回答这个问题。";
+      assistantContent = t('qa.noEvidenceContent');
     } else if (res.status === "need_clarify") {
       assistantContent =
-        res.clarify_options?.join("\n") || "你的问题比较模糊，请再具体一些。";
+        res.clarify_options?.join("\n") || t('qa.needClarifyContent');
     }
 
     const assistantMsg: ChatMessage = {

@@ -2,7 +2,7 @@ import { embedQuery, embedChunks } from "../utils/embedding";
 import { selectRetrievalChunks } from "../utils/similarity";
 import { applyContextBudget } from "../utils/chunk";
 import { streamDeepSeekAPI } from "./aiService";
-import { QA_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT } from "../prompts/prompt";
+import { getSystemPrompt } from "../prompts/prompt";
 import { decideEvidenceStatus } from "../utils/evidenceGate";
 import type {
   QAResponse,
@@ -12,9 +12,7 @@ import type {
 } from "../types/qa";
 import type { Chunk } from "../utils/chunk";
 import { getStandaloneQuery } from "../utils/queryRewriter";
-import { getChatStatistics } from "../utils/chatHistory";
 import { summarizeHistory } from "../utils/historyManager";
-import { countTokens } from "../utils/tokenCounter";
 
 const chunkEmbeddingCache = new Map<string, number[]>();
 
@@ -27,37 +25,24 @@ export async function answerQuestion(
   chunks: Chunk[],
   strategy?: "auto" | "topk" | "mmr",
   history: ChatMessage[] = [],
-  onStream?: (chunk: string) => void
+  onStream?: (chunk: string) => void,
+  locale: string = 'zh'
 ): Promise<QAResponse> {
+  const isEn = locale.startsWith('en');
   if (!question || !question.trim()) {
-    throw new Error("question 不能为空");
+    throw new Error(isEn ? "Question cannot be empty" : "question 不能为空");
   }
   if (!Array.isArray(chunks) || !chunks.length) {
-    throw new Error("chunks 不能为空");
+    throw new Error(isEn ? "Chunks cannot be empty" : "chunks 不能为空");
   }
-  // 统计对话轮次信息
-  // const chatStats = getChatStatistics(history);
-  // console.log("[RAG] 对话轮次统计:", chatStats);
   
-  // 0. 历史摘要优化：当历史记录超过最大token阀值时，压缩旧消息为背景摘要
-  const optimizedHistory = await summarizeHistory(history);
-  console.log(
-    `[RAG] 历史优化：原始 ${history.length} 条 → 优化后 ${optimizedHistory.length} 条`
-  );
-  console.log(
-    `[RAG] Token 预估：原始 ${countTokens(history)} | 优化后 ${countTokens(optimizedHistory)}`
-  );
+  // 0. 历史摘要优化
+  const optimizedHistory = await summarizeHistory(history, locale);
   
-  // 1. 使用优化后的历史进行查询重写，得到独立检索词
-  const standaloneQuery = await getStandaloneQuery(optimizedHistory, question);
-  console.log(
-    "[RAG] standalone query===>>>:",
-    standaloneQuery,
-    "raw question:",
-    question
-  );
+  // 1. 查询重写
+  const standaloneQuery = await getStandaloneQuery(optimizedHistory, question, locale);
 
-  // 如果是闲聊/不需要检索，直接走普通对话，不做向量检索
+  // 如果是闲聊/不需要检索
   if (standaloneQuery === "NO_SEARCH_NEEDED") {
     const historyText =
       optimizedHistory && optimizedHistory.length
@@ -67,15 +52,15 @@ export async function answerQuestion(
               return `${idx + 1}. ${prefix}：${m.content}`;
             })
             .join("\n")
-        : "（无）";
+        : (isEn ? "(None)" : "（无）");
 
     const messages = [
-      { role: "system", content: CHAT_SYSTEM_PROMPT },
+      { role: "system", content: getSystemPrompt('CHAT', locale) },
       {
         role: "user",
         content:
-          `[对话历史]\n${historyText}\n\n` +
-          `[当前问题]\n${question}\n\n`,
+          (isEn ? `[Chat History]\n${historyText}\n\n` : `[对话历史]\n${historyText}\n\n`) +
+          (isEn ? `[Current Question]\n${question}\n\n` : `[当前问题]\n${question}\n\n`),
       },
     ];
 
@@ -83,12 +68,12 @@ export async function answerQuestion(
       if (onStream && key === 'answer') {
         onStream(chunk);
       }
-    });
+    }, locale);
     const parsed: any = res;
     const answerText =
       parsed?.answer ||
       (typeof parsed === "string" ? parsed : "") ||
-      "我在这里～";
+      (isEn ? "I'm here~" : "我在这里～");
 
     const metrics: QAMetrics = {
       top1_score: 0,
@@ -155,8 +140,6 @@ export async function answerQuestion(
     relevance: retrievalResult.selectedChunks[idx]?.score || 0
   }));
 
-  console.log(`${retrievalResult.strategyUsed.toUpperCase()} topK`, topChunks);
-
   // 4. 证据三态判定（基于原始检索结果）
   const LOW = 0.40;
   const HIGH = 0.52;
@@ -179,7 +162,6 @@ export async function answerQuestion(
     relevance: retrievalResult.selectedChunks.find(r => chunks[r.index] === chunk)?.score || 0
   }));
 
-  console.log(`${retrievalResult.strategyUsed.toUpperCase()} + Context Budget: ${budgetResult.chunkCount}片段, ${budgetResult.totalChars}字符`, finalTopChunks);
   // 生成 used_chunks（基于预算处理后的结果）
   const used_chunks = finalTopChunks.slice(0, k).map(chunk => ({
     chunk_id: chunk.chunkId,
@@ -216,7 +198,11 @@ export async function answerQuestion(
       used_chunks,
       metrics,
       need_clarify: true,
-      clarify_options: [
+      clarify_options: isEn ? [
+        "Which part are you asking about? Please be more specific.",
+        "Can you provide key fields/keywords (e.g., amount/date/invoice number)?",
+        "Are you looking for a specific clause or field?"
+      ] : [
         "你想问的是哪一部分？请更具体一点。",
         "能否提供关键字段/关键词（例如金额/日期/发票号码）？",
         "你希望查询的是某个条款/某个字段吗？"
@@ -235,7 +221,7 @@ export async function answerQuestion(
     };
   }
 
-  // ========= 证据继承：从上一轮助手消息中继承 usedChunks =========
+  // ========= 证据继承 =========
   let inheritedChunks: Chunk[] = [];
   if (optimizedHistory && optimizedHistory.length) {
     const lastAssistant = [...optimizedHistory]
@@ -246,7 +232,6 @@ export async function answerQuestion(
     }
   }
 
-  // 当前轮用于 context 的片段（根据 finalTopChunks 和原始 chunks 映射）
   const chunkMap = new Map<string, Chunk>();
   chunks.forEach((c) => chunkMap.set(c.id, c));
 
@@ -256,7 +241,6 @@ export async function answerQuestion(
     if (c) currentContextChunks.push(c);
   }
 
-  // 合并继承证据与当前检索证据，按 chunk.id 去重
   const mergedContextChunks: Chunk[] = [];
   const seenIds = new Set<string>();
 
@@ -277,14 +261,12 @@ export async function answerQuestion(
 
   const contextChunksForPrompt = mergedContextChunks.length ? mergedContextChunks : currentContextChunks;
   const contextIdsSet = new Set(contextChunksForPrompt.map(c => c.id));
-
-  // 标记继承来源：若片段来自继承，在Prompt中加注 (来源：上一轮)
   const inheritedIds = new Set(inheritedChunks.map(c => c.id));
 
-  // 构建提示词（使用预算处理后的上下文 + 继承证据）
+  // 构建提示词
   const userChunks = contextChunksForPrompt
     .map((item) => {
-      const sourceLabel = inheritedIds.has(item.id) ? " (引用来源：上一轮)" : "";
+      const sourceLabel = inheritedIds.has(item.id) ? (isEn ? " (Source: Previous Turn)" : " (引用来源：上一轮)") : "";
       return `#${item.id}${sourceLabel}: ${item.text}`;
     })
     .join("\n----\n");
@@ -297,37 +279,32 @@ export async function answerQuestion(
             return `${idx + 1}. ${prefix}：${m.content}`;
           })
           .join("\n")
-      : "（无）";
+      : (isEn ? "(None)" : "（无）");
 
   const messages = [
-    { role: "system", content: QA_SYSTEM_PROMPT },
-    // 在 System Prompt 之后插入对话历史，再给出当前检索上下文，避免证据污染
+    { role: "system", content: getSystemPrompt('QA', locale) },
     {
       role: "user",
       content:
-        `###[对话历史]（Chat History）这是你和用户之前的对话背景，仅供参考指代关系，不可作为事实来源：\n${historyText}\n\n` +
-        `###[当前问题]（Current Query）这是用户最新的问题，你必须按照这个问题回答：\n${question}\n\n` +
-        `###[当前证据]（Current Evidence）（按相关度排序，# 为片段编号）这是从文档中检索到的最新事实，你必须优先基于此内容回答：\n${userChunks}\n\n` +
-        "请结合上述对话历史和当前证据，用中文按指定 JSON 格式回答，其中 sources 字段只能引用上文出现的片段编号。",
+        (isEn ? `###[Chat History] Context for pronouns, not factual source:\n${historyText}\n\n` : `###[对话历史]（Chat History）这是你和用户之前的对话背景，仅供参考指代关系，不可作为事实来源：\n${historyText}\n\n`) +
+        (isEn ? `###[Current Query] Answer this question:\n${question}\n\n` : `###[当前问题]（Current Query）这是用户最新的问题，你必须按照这个问题回答：\n${question}\n\n`) +
+        (isEn ? `###[Current Evidence] Latest facts from document, prioritize this:\n${userChunks}\n\n` : `###[当前证据]（Current Evidence）（按相关度排序，# 为片段编号）这是从文档中检索到的最新事实，你必须优先基于此内容回答：\n${userChunks}\n\n`) +
+        (isEn ? "Please combine the history and evidence to answer in the specified JSON format. The 'sources' field must only reference the fragment IDs above. Return the answer in the user's language." : "请结合上述对话历史和当前证据，用中文按指定 JSON 格式回答，其中 sources 字段只能引用上文出现的片段编号。"),
     },
   ];
 
-  // 调用 DeepSeek API 进行回答
   const res = await streamDeepSeekAPI(messages, false, (chunk, key) => {
     if (onStream && key === 'answer') {
       onStream(chunk);
     }
-  });
+  }, locale);
   const content = res || "";
 
   try {
     const parsed: any = content;
-
-    // 检查引用完整性：确保所有citations都包含在used_chunks中
     const citations = Array.isArray(parsed?.sources) ? parsed.sources : [];
     const allowedIds = new Set(contextIdsSet);
 
-    // 检查是否有任何citation不在used_chunks中
     const invalidCitations = citations.filter((citation: string) => {
       const numCitation = parseInt(citation);
       if (!isNaN(numCitation)) {
@@ -336,7 +313,6 @@ export async function answerQuestion(
       return !allowedIds.has(citation);
     });
 
-    // 如果有无效引用，返回no_evidence
     if (invalidCitations.length > 0) {
       return {
         status: 'no_evidence' as EvidenceStatus,
@@ -347,7 +323,6 @@ export async function answerQuestion(
       };
     }
 
-    // 根据 sources 数组，提取当前轮真正被引用的片段明细（用于前端 ChatMessage.usedChunks）
     const citationIdSet = new Set<string>();
     for (const c of citations) {
       if (!c) continue;
@@ -374,7 +349,7 @@ export async function answerQuestion(
 
     return {
       status: 'has_evidence' as EvidenceStatus,
-      answer: parsed?.answer ?? "文档中没有找到相关信息",
+      answer: parsed?.answer ?? (isEn ? "No relevant info found" : "文档中没有找到相关信息"),
       used_chunks,
       metrics,
       need_clarify: false,
@@ -383,6 +358,6 @@ export async function answerQuestion(
       inherited_ids: Array.from(inheritedIds)
     };
   } catch (e) {
-    throw new Error("LLM 返回的内容不是合法 JSON");
+    throw new Error(isEn ? "LLM response is not valid JSON" : "LLM 返回的内容不是合法 JSON");
   }
 }

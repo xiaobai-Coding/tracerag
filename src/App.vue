@@ -1,17 +1,30 @@
 <template>
   <main class="page">
+    <header class="page-header">
+      <div class="lang-switcher">
+        <button 
+          v-for="lang in ['zh', 'en']" 
+          :key="lang"
+          :class="{ active: $i18n.locale === lang }"
+          @click="setLanguage(lang as 'zh' | 'en')"
+        >
+          {{ lang.toUpperCase() }}
+        </button>
+      </div>
+    </header>
+
     <section class="hero">
       <div class="hero-content">
         <div class="hero-header">
           <p class="tag">
             <span class="tag-icon">📄</span>
-            <span>Document RAG · Q&A</span>
+            <span>{{ $t('hero.tag') }}</span>
           </p>
-          <h1>Document Parser & Extraction</h1>
+          <h1>{{ $t('hero.title') }}</h1>
         </div>
         <div class="hero-upload">
           <FileUploader @file-upload="handleFile" />
-          <p class="hint">支持格式：PDF (.pdf) · DOCX (.docx)</p>
+          <p class="hint">{{ $t('upload.hint') }}</p>
         </div>
       </div>
     </section>
@@ -19,8 +32,8 @@
     <section class="status-section" v-if="loading || error">
       <div class="status-card" :class="{ error: error }">
         <div class="status-indicator" :class="{ loading: loading, error: error }"></div>
-        <span v-if="loading">⏳ 正在解析文档中…</span>
-        <span v-else-if="error" class="error-text">{{ error }}</span>
+        <span v-if="loading">⏳ {{ $t('status.parsing') }}</span>
+        <span v-else-if="error" class="error-text">{{ $t('status.failed', { error }) }}</span>
       </div>
     </section>
 
@@ -29,36 +42,29 @@
       <div class="ui-card summary-card">
         <div class="card-header">
           <div class="dot purple"></div>
-          <span>AI 摘要</span>
-          <span class="count" v-if="chunks.length">片段 {{ chunks.length }} 个</span>
+          <span>{{ $t('summary.title') }}</span>
+          <span class="count" v-if="chunks.length">{{ $t('summary.chunks', { count: chunks.length }) }}</span>
         </div>
 
         <div v-if="summaryLoading" class="summary-loading">
           <span class="spinner"></span>
-          <span>摘要生成中…</span>
+          <span>{{ $t('summary.loading') }}</span>
           <div class="skeleton-lines">
             <div class="skeleton-line long"></div>
             <div class="skeleton-line"></div>
             <div class="skeleton-line short"></div>
             <div class="skeleton-line"></div>
-            <div class="skeleton-line"></div>
-            <div class="skeleton-line long"></div>
-          </div>
-          <div class="skeleton-lines">
-            <div class="skeleton-line long"></div>
-            <div class="skeleton-line"></div>
-            <div class="skeleton-line short"></div>
             <div class="skeleton-line"></div>
             <div class="skeleton-line long"></div>
           </div>
         </div>
 
         <div v-else-if="summaryError" class="summary-error">
-          {{ summaryError }}
+          {{ $t('summary.error') }}: {{ summaryError }}
         </div>
 
         <div v-else-if="summary" class="summary-content">
-          <h3 v-if="summary.summary">摘要</h3>
+          <h3 v-if="summary.summary">{{ $t('summary.summaryTitle') }}</h3>
           <p class="summary-line">
             <span v-for="(seg, idx) in parseWithRefs(summary.summary)" :key="`s-${idx}`">
               <template v-if="seg.type === 'text'">{{ seg.text }}</template>
@@ -72,7 +78,7 @@
             </span>
           </p>
 
-          <h4 v-if="(summary.key_points && summary.key_points.length) || (summary.key_points_raw && displayKeyPoints.length)">关键点</h4>
+          <h4 v-if="(summary.key_points && summary.key_points.length) || (summary.key_points_raw && displayKeyPoints.length)">{{ $t('summary.keyPointsTitle') }}</h4>
           <ul v-if="summary.key_points && summary.key_points.length">
             <li v-for="(kp, idx) in summary.key_points" :key="idx">
               <span>
@@ -108,15 +114,15 @@
         </div>
 
         <div v-else class="summary-placeholder">
-          上传完成后自动生成摘要…
+          {{ $t('summary.placeholder') }}
         </div>
       </div>
       <!-- 提取的文本内容 -->
       <div class="ui-card ui-card--dark text-card">
         <div class="card-header">
           <div class="dot blue"></div>
-          <span class="text-card-title">提取的文本内容</span>
-          <span class="count ui-badge" v-if="text">{{ Math.ceil(text.length / 1000) }}K 字符</span>
+          <span class="text-card-title">{{ $t('textViewer.title') }}</span>
+          <span class="count ui-badge" v-if="text">{{ $t('textViewer.characters', { count: Math.ceil(text.length / 1000) }) }}</span>
         </div>
         <TextViewer :chunks="chunks" :highlight-chunk-indices="highlightChunks" ref="textViewerRef" />
       </div>
@@ -126,7 +132,7 @@
 
     <section class="empty-state" v-else-if="!loading && !error">
       <div class="empty-card">
-        <p>📄 请上传文档开始解析</p>
+        <p>📄 {{ $t('summary.placeholder') }}</p>
       </div>
     </section>
   </main>
@@ -135,6 +141,8 @@
 <script setup lang="ts">
 // @ts-nocheck
 import { ref, computed } from "vue";
+import { useI18n } from 'vue-i18n';
+import { setLanguage } from './i18n';
 // @ts-ignore - Vue component with script setup
 import FileUploader from "./components/FileUploader.vue";
 // @ts-ignore - Vue component with script setup
@@ -146,7 +154,10 @@ import { extractDocxText } from "./utils/docxParser";
 import { splitIntoChunksWithOverlap, removeDuplicateChunks, type Chunk } from "./utils/chunk";
 import { streamDeepSeekAPI } from "./services/aiService";
 import { answerQuestion } from "./services/qaService";
-import { PARSE_SYSTEM_PROMPT } from "./prompts/prompt"
+import { getSystemPrompt } from "./prompts/prompt"
+
+const { t, locale } = useI18n();
+
 type SummaryResult = {
   summary: string;
   key_points: string[];
@@ -219,7 +230,7 @@ async function handleFile(file: File) {
     const handler = fileHandlers[extension];
 
     if (!handler) {
-      error.value = "不支持的文件类型，仅支持 PDF 和 DOCX 格式";
+      error.value = t('upload.errorType');
       return;
     }
 
@@ -233,7 +244,7 @@ async function handleFile(file: File) {
     // 生成摘要
     await generateSummary();
   } catch (err: any) {
-    error.value = "解析失败：" + err.message;
+    error.value = t('status.failed', { error: err.message });
   } finally {
     loading.value = false;
   }
@@ -329,7 +340,7 @@ ${chunks.value.map((c) => `#${c.index}: ${c.text}`).join("\n------------\n")}
 `;
 
   const messages = [
-    { role: "system", content: PARSE_SYSTEM_PROMPT },
+    { role: "system", content: getSystemPrompt('PARSE', locale.value) },
     { role: "user", content: userMessage }
   ];
 
@@ -359,16 +370,10 @@ ${chunks.value.map((c) => `#${c.index}: ${c.text}`).join("\n------------\n")}
             // 我们先积累到 raw 字段用于展示
             if (!summary.value.key_points_raw) summary.value.key_points_raw = "";
             summary.value.key_points_raw += partial;
-          } else if (!key) {
-            // 兼容旧逻辑或无 key 的情况 (fallback)
-             // 暂时不做处理，或者也可以默认给 summary? 
-             // 如果 createMultiKeyStreamer 工作正常，key 应该总是有值的 (除了非 json 响应)
-             // 如果是非 json 响应，streamDeepSeekAPI 会回调 key=undefined，内容是纯文本
-             // 这里我们可以假设是 summary
-             // summary.value.summary += partial;
           }
         }
-      }
+      },
+      locale.value
     );
     
     // 最终解析
@@ -379,11 +384,11 @@ ${chunks.value.map((c) => `#${c.index}: ${c.text}`).join("\n------------\n")}
         key_points: parsed.key_points
       };
     } else {
-      summaryError.value = "模型返回格式不符合预期，请重试。";
+      summaryError.value = t('summary.error');
     }
   } catch (e: any) {
     console.error("[Summary] 生成摘要失败:", e);
-    summaryError.value = e?.message || "生成摘要失败";
+    summaryError.value = e?.message || t('summary.error');
   } finally {
     summaryLoading.value = false;
   }
@@ -400,6 +405,42 @@ ${chunks.value.map((c) => `#${c.index}: ${c.text}`).join("\n------------\n")}
   flex-direction: column;
   gap: var(--space-6);
   box-sizing: border-box;
+}
+
+.page-header {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0 16px;
+}
+
+.lang-switcher {
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 4px;
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+}
+
+.lang-switcher button {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.lang-switcher button.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }
 
 .hero {

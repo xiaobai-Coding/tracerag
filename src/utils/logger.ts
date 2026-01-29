@@ -6,6 +6,7 @@ export interface BaseLog {
   ts: string;
   level: LogLevel;
   traceId: string;
+  locale?: string;
   module: string;
   step: string;
   duration_ms?: number;
@@ -28,6 +29,7 @@ export type RAGMetadata =
 
 interface TraceStore {
   traceId: string;
+  locale?: string;
 }
 
 // Simple abstraction for Context Storage (Works in Browser & Node)
@@ -85,13 +87,17 @@ class Logger {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
   }
 
-  public runWithTrace<T>(fn: () => T, traceId?: string): T {
+  public runWithTrace<T>(fn: () => T, traceId?: string, locale?: string): T {
     const id = traceId || this.generateTraceId();
-    return contextStorage.run({ traceId: id }, fn);
+    return contextStorage.run({ traceId: id, locale }, fn);
   }
 
   public getTraceId(): string {
     return contextStorage.getStore()?.traceId || 'no-trace';
+  }
+
+  public getLocale(): string | undefined {
+    return contextStorage.getStore()?.locale;
   }
 
   private output(level: LogLevel, module: string, step: string, metadata?: RAGMetadata, duration_ms?: number) {
@@ -99,6 +105,7 @@ class Logger {
       ts: new Date().toISOString(),
       level,
       traceId: this.getTraceId(),
+      locale: this.getLocale(),
       module,
       step,
       duration_ms,

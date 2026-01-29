@@ -13,8 +13,8 @@
       <div class="upload-content">
         <div class="upload-icon">📄</div>
         <div class="upload-text">
-          <span class="upload-primary">点击选择文件</span>
-          <span class="upload-secondary">或拖拽文件到此处</span>
+          <span class="upload-primary">{{ $t('upload.primary') }}</span>
+          <span class="upload-secondary">{{ $t('upload.secondary') }}</span>
         </div>
       </div>
     </label>

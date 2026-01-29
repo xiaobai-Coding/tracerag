@@ -182,140 +182,144 @@ export default async function handler(
 ): Promise<void> {
   const requestId = generateRequestId();
   const startTime = Date.now();
+  const locale = (request.headers["accept-language"] || "zh") as string;
 
-  try {
-    // 1️⃣ 只允许POST方法
-    if (request.method !== "POST") {
-      const errorResponse: ErrorResponse = {
-        status: "error",
-        code: "BAD_REQUEST",
-        message: "只支持POST方法",
-        requestId
-      };
-      response.status(405).json(errorResponse);
-      return;
-    }
-    // 2️⃣ IP 限流
-    const rawIp =
-      (request.headers["x-forwarded-for"] as string) ||
-      request.socket.remoteAddress ||
-      "unknown";
-    const ip = normalizeIp(rawIp);
-    if (!(await checkRateLimit(ip))) {
-      response.status(429).json({
-        error: "已经达到请求限制，请稍后再试。"
-      });
-      return;
-    }
-    // 3️⃣ 客户端 Token 校验
-    const CLIENT_TOKEN = process.env.CLIENT_TOKEN;
-    if (!CLIENT_TOKEN) {
-      throw new Error("Missing CLIENT_TOKEN");
-    }
-
-    const clientToken = request.headers["x-client-token"];
-
-    if (clientToken !== CLIENT_TOKEN) {
-      response.status(401).json({
-        error: "Unauthorized client"
-      });
-      return;
-    }
-    // parse request body
-    let body: RequestBody;
+  return await logger.runWithTrace(async () => {
     try {
-      body = JSON.parse(JSON.stringify(request.body));
-    } catch (e) {
+      // 1️⃣ 只允许POST方法
+      if (request.method !== "POST") {
+        const errorResponse: ErrorResponse = {
+          status: "error",
+          code: "BAD_REQUEST",
+          message: "只支持POST方法",
+          requestId
+        };
+        response.status(405).json(errorResponse);
+        return;
+      }
+      // 2️⃣ IP 限流
+      const rawIp =
+        (request.headers["x-forwarded-for"] as string) ||
+        request.socket.remoteAddress ||
+        "unknown";
+      const ip = normalizeIp(rawIp);
+      if (!(await checkRateLimit(ip))) {
+        response.status(429).json({
+          error: "已经达到请求限制，请稍后再试。"
+        });
+        return;
+      }
+      // 3️⃣ 客户端 Token 校验
+      const CLIENT_TOKEN = process.env.CLIENT_TOKEN;
+      if (!CLIENT_TOKEN) {
+        throw new Error("Missing CLIENT_TOKEN");
+      }
+
+      const clientToken = request.headers["x-client-token"];
+
+      if (clientToken !== CLIENT_TOKEN) {
+        response.status(401).json({
+          error: "Unauthorized client"
+        });
+        return;
+      }
+      // parse request body
+      let body: RequestBody;
+      try {
+        body = JSON.parse(JSON.stringify(request.body));
+      } catch (e) {
+        const errorResponse: ErrorResponse = {
+          status: "error",
+          code: "BAD_REQUEST",
+          message: "请求体必须是有效的JSON",
+          requestId
+        };
+        response.status(400).json(errorResponse);
+        return;
+      }
+
+      // 验证请求体
+      const validation = validateRequest(body);
+      if (!validation.isValid) {
+        const errorResponse: ErrorResponse = {
+          status: "error",
+          code: "BAD_REQUEST",
+          message: validation.error!,
+          requestId
+        };
+        response.status(400).json(errorResponse);
+        return;
+      }
+
+      // 扫描注入风险
+      const injectionResult = scanInjectionRisk(body.texts);
+
+      // 调用DashScope API
+      const { embeddings, model } = await callDashScopeEmbedding(body.texts);
+      const duration = Date.now() - startTime;
+      
+      // 使用新的 Logger 输出结构化日志
+      logger.info("API", "Embedding", {
+        requestId,
+        purpose: body.purpose || "unknown",
+        texts_count: body.texts.length,
+        duration_ms: duration,
+        hasInjectionRisk: injectionResult.hasRisk
+      });
+
+      // 成功响应
+      const successResponse: SuccessResponse = {
+        status: "ok",
+        data: { embeddings },
+        meta: {
+          provider: "dashscope",
+          model,
+          hasInjectionRisk: injectionResult.hasRisk,
+          flaggedIndexes: injectionResult.flaggedIndexes,
+          requestId
+        }
+      };
+
+      response.status(200).json(successResponse);
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      logger.error("API", "EmbeddingFailed", error, { requestId, duration_ms: duration });
+
+      let code: ErrorResponse["code"] = "INTERNAL_ERROR";
+      let message = "内部服务器错误";
+      let statusCode = 500;
+
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+
+        if (
+          errorMessage.includes("环境变量") ||
+          errorMessage.includes("api key")
+        ) {
+          code = "INTERNAL_ERROR"; // 不暴露配置问题
+          message = "服务配置错误";
+        } else if (
+          errorMessage.includes("上游api错误") ||
+          errorMessage.includes("上游api返回")
+        ) {
+          code = "UPSTREAM_ERROR";
+          message = "向量化服务暂时不可用";
+          statusCode = 502;
+        } else {
+          code = "INTERNAL_ERROR";
+          message = "处理请求时发生错误";
+        }
+      }
+
       const errorResponse: ErrorResponse = {
         status: "error",
-        code: "BAD_REQUEST",
-        message: "请求体必须是有效的JSON",
+        code,
+        message,
         requestId
       };
-      response.status(400).json(errorResponse);
-      return;
+
+      response.status(statusCode).json(errorResponse);
     }
-
-    // 验证请求体
-    const validation = validateRequest(body);
-    if (!validation.isValid) {
-      const errorResponse: ErrorResponse = {
-        status: "error",
-        code: "BAD_REQUEST",
-        message: validation.error!,
-        requestId
-      };
-      response.status(400).json(errorResponse);
-      return;
-    }
-
-    // 扫描注入风险
-    const injectionResult = scanInjectionRisk(body.texts);
-
-    // 调用DashScope API
-    const { embeddings, model } = await callDashScopeEmbedding(body.texts);
-    const duration = Date.now() - startTime;
-    
-    // 使用新的 Logger 输出结构化日志
-    logger.info("API", "Embedding", {
-      requestId,
-      purpose: body.purpose || "unknown",
-      texts_count: body.texts.length,
-      duration_ms: duration,
-      hasInjectionRisk: injectionResult.hasRisk
-    });
-
-    // 成功响应
-    const successResponse: SuccessResponse = {
-      status: "ok",
-      data: { embeddings },
-      meta: {
-        provider: "dashscope",
-        model,
-        hasInjectionRisk: injectionResult.hasRisk,
-        flaggedIndexes: injectionResult.flaggedIndexes,
-        requestId
-      }
-    };
-
-    response.status(200).json(successResponse);
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    logger.error("API", "EmbeddingFailed", error, { requestId, duration_ms: duration });
-
-    let code: ErrorResponse["code"] = "INTERNAL_ERROR";
-    let message = "内部服务器错误";
-    let statusCode = 500;
-
-    if (error instanceof Error) {
-      const errorMessage = error.message.toLowerCase();
-
-      if (
-        errorMessage.includes("环境变量") ||
-        errorMessage.includes("api key")
-      ) {
-        code = "INTERNAL_ERROR"; // 不暴露配置问题
-        message = "服务配置错误";
-      } else if (
-        errorMessage.includes("上游api错误") ||
-        errorMessage.includes("上游api返回")
-      ) {
-        code = "UPSTREAM_ERROR";
-        message = "向量化服务暂时不可用";
-        statusCode = 502;
-      } else {
-        code = "INTERNAL_ERROR";
-        message = "处理请求时发生错误";
-      }
-    }
-
-    const errorResponse: ErrorResponse = {
-      status: "error",
-      code,
-      message,
-      requestId
-    };
-
-    response.status(statusCode).json(errorResponse);
-  }
+  }, undefined, locale);
 }
+

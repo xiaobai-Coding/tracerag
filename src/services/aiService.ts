@@ -33,7 +33,8 @@ type StreamResult = {
 export const streamDeepSeekAPI = async (
   userMessages: any[],
   _showDebugReasoning: boolean = false, // 保留签名，暂未使用
-  onPartialResponse?: (chunk: string, key?: string) => void
+  onPartialResponse?: (chunk: string, key?: string) => void,
+  locale: string = 'zh'
 ): Promise<StreamResult> => {
    
     const useServerApi = import.meta.env.VITE_USE_SERVER_API === "true";
@@ -56,8 +57,8 @@ export const streamDeepSeekAPI = async (
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            "x-client-token": "tracerag-web"
-            // Authorization: `Bearer ${config.apiKey}`
+            "x-client-token": "tracerag-web",
+            "Accept-Language": locale
         },
         body: JSON.stringify(requestBody)
         });
