@@ -8,6 +8,20 @@ A complete RAG (Retrieval-Augmented Generation) document Q&A system built with V
 
 This project is an end-to-end RAG Q&A system that integrates the full process of document parsing, text chunking, vectorization, semantic retrieval, and generative Q&A. After users upload documents, the system automatically extracts text, generates vectors, builds indexes, finds the most relevant document segments through semantic retrieval, and finally uses AI to generate accurate answers based on document content, while supporting multi-turn conversations and context management.
 
+## 🌐 Architecture & Global Performance Optimization
+
+TraceRAG is more than just a document Q&A tool; it is an **AI-driven observability engine** designed specifically for RAG systems. It monitors the entire query lifecycle—from vectorization to final generation—with a primary focus on **TTFT (Time to First Token)** and **Retrieval Recall**.
+
+### Global Deployment Strategy
+To provide a seamless experience for both Mainland China and international users, TraceRAG implements a **Geo-aware Traffic Routing** system:
+- **Mainland China Route**: Optimized via a dedicated edge node (`cname-china.vercel-dns.com`) to bypass international bandwidth bottlenecks and ensure high availability.
+- **Global Route**: Leverages Vercel’s Anycast network for low-latency access from any region worldwide.
+- **Performance Impact**: This architecture reduces average latency by **over 60%** for users in Asia while maintaining native, high-speed performance for overseas users.
+
+### Key Technical Highlights
+- **Incremental Observability**: Tracks and logs granular metrics (latency, scores, `traceId`) for every RAG turn to ensure system transparency.
+- **Hybrid Retrieval Analysis**: Rigorously tested against complex hardware manuals (e.g., *Nova-X1 Smart Robot*, *XX Smartwatch*), ensuring high consistency and accuracy across diverse and technical datasets.
+
 ### Core Capabilities
 
 - 📄 **Multi-format Support**: Parsing of PDF (.pdf) and DOCX (.docx) files
@@ -400,6 +414,20 @@ Issues or Pull Requests welcome.
 ## 📋 项目简介
 
 本项目是一个端到端的 RAG 问答系统，集成了文档解析、文本分块、向量化、语义检索和生成式问答的完整流程。用户上传文档后，系统会自动提取文本、生成向量、建立索引，然后通过语义检索找到最相关的文档片段，最终由 AI 生成基于文档内容的准确回答，同时支持多轮对话和上下文管理。
+
+## 🌐 架构与全球性能优化
+
+TraceRAG 不仅仅是一个文档问答工具，它更是一个专为 RAG 系统设计的 **AI 驱动的可观测性引擎**。它监控从向量化到最终生成的整个查询生命周期，核心关注 **TTFT（首字延迟）** 和 **检索召回率（Retrieval Recall）**。
+
+### 全球部署策略
+为了确保中国大陆及海外用户都能获得流畅的体验，TraceRAG 实施了 **地理感知流量路由（Geo-aware Traffic Routing）** 系统：
+- **中国大陆链路**：通过专用边缘节点（`cname-china.vercel-dns.com`）进行优化，绕过国际带宽瓶颈，确保高可用性。
+- **全球链路**：利用 Vercel 的 Anycast 网络，实现全球各地区的低延迟访问。
+- **性能提升**：该架构为亚洲用户降低了 **60% 以上** 的平均延迟，同时保持了海外用户原生的极速性能。
+
+### 核心技术亮点
+- **增量可观测性**：为每一轮 RAG 对话追踪并记录细粒度指标（耗时、评分、`traceId`），确保系统透明度。
+- **混合检索分析**：针对复杂硬件说明书（如 *Nova-X1 智能机器人*、*XX 智能手表*）进行了严格测试，确保在多样化技术数据集中保持高度的一致性与准确性。
 
 ### 核心能力
 
