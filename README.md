@@ -1,6 +1,6 @@
 # TraceRAG
 
-[中文版本](#chinese-version) | [Online Demo](https://tracerag.vercel.app/)
+[中文版本](#chinese-version) | [Online Demo](https://www.tracerag.top/)
 
 A complete RAG (Retrieval-Augmented Generation) document Q&A system built with Vue 3 + TypeScript + Vercel Serverless Functions. Supports PDF/DOCX document parsing, intelligent chunking, vector retrieval, and AI-driven Q&A, enabling precise question answering based on document content.
 
@@ -407,7 +407,7 @@ Issues or Pull Requests welcome.
 
 # TraceRAG
 
-[在线体验](https://tracerag.vercel.app/)
+[在线体验](https://www.tracerag.top/)
 
 一个完整的 RAG（Retrieval-Augmented Generation）文档问答系统，基于 Vue 3 + TypeScript + Vercel Serverless Functions 构建。支持 PDF/DOCX 文档解析、智能分块、向量化检索和 AI 驱动的问答功能，实现基于文档内容的精准问答。
 
